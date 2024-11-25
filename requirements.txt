@@ -1,0 +1,10 @@
+# Production dependencies
+PyQt6==6.6.1
+questionary==2.0.1
+pyinstaller==6.3.0
+customtkinter==5.2.2
+
+# Test dependencies
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
