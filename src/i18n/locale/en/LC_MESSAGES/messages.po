@@ -1,0 +1,34 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+
+msgid "Start"
+msgstr "Start"
+
+msgid "Stop"
+msgstr "Stop"
+
+msgid "Restart"
+msgstr "Restart"
+
+msgid "Edit"
+msgstr "Edit"
+
+msgid "Logs"
+msgstr "Logs"
+
+msgid "Delete"
+msgstr "Delete"
+
+msgid "No description"
+msgstr "No description"
+
+msgid "Name"
+msgstr "Name"
+
+msgid "Description"
+msgstr "Description"
+
+msgid "Status"
+msgstr "Status"

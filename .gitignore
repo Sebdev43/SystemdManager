@@ -22,29 +22,27 @@ wheels/
 
 # Virtual Environment
 venv/
-ENV/
 env/
+ENV/
+.env/
+.venv/
 
-# Testing
-.coverage
-htmlcov/
-.tox/
-.pytest_cache/
-.hypothesis/
-
-# IDE
+# IDE specific files
 .idea/
 .vscode/
 *.swp
 *.swo
+.project
+.pydevproject
+.settings/
 
-# Logs
-*.log
-
-# Local development settings
-.env
-.env.local
-
-# System files
+# OS specific files
 .DS_Store
 Thumbs.db
+*.log
+
+# Project specific
+*.service
+*.unit
+logs/
+temp/

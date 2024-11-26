@@ -110,16 +110,17 @@ class ServiceModel:
         return content
 
     def save_to_json(self, filepath: str):
-        """Sauvegarde la configuration en JSON"""
+        """Sauvegarde la configuration dans un fichier JSON"""
+        data = {
+            'name': self.name,
+            'unit': self.unit.__dict__,
+            'service': self.service.__dict__,
+            'install': self.install.__dict__
+        }
+        
         with open(filepath, 'w') as f:
-            json.dump({
-                'name': self.name,
-                'unit': vars(self.unit),
-                'service': vars(self.service),
-                'install': vars(self.install)
-            }, f, indent=4)
+            json.dump(data, f, indent=4)
 
-    @classmethod
     def load_from_json(cls, filepath: str) -> 'ServiceModel':
         """Charge la configuration depuis un JSON"""
         with open(filepath, 'r') as f:
@@ -154,7 +155,7 @@ class ServiceModel:
     def handle_input(self, value: str, previous_step: callable = None):
         """Gère les entrées utilisateur standard"""
         if value.lower() == 'q':
-            sys.exit("Au revoir ! 👋")
+            sys.exit("Au revoir ! ")
         elif value.lower() == 'b' and previous_step:
             previous_step()
         return value
