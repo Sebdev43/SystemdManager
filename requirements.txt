@@ -1,0 +1,16 @@
+# Production dependencies
+PyQt6==6.6.1
+questionary==2.0.1
+pyinstaller==6.3.0
+customtkinter==5.2.2
+python-i18n==0.3.9
+psutil==5.9.8
+typing-extensions==4.9.0
+
+# Development dependencies
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+black==24.1.1
+flake8==7.0.0
+mypy==1.8.0
