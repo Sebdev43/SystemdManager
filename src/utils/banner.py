@@ -1,6 +1,6 @@
 import os
 
-# Couleurs ANSI
+
 BLUE = "\033[34m"
 CYAN = "\033[36m"
 RED = "\033[31m"
@@ -10,8 +10,7 @@ BOLD = "\033[1m"
 ITALIC = "\033[3m"
 
 def print_banner():
-    """Affiche la bannière de démarrage"""
-    os.system('clear')  # Nettoie l'écran
+    os.system('clear')  
     print("")
     print(f"{BLUE}")
     print("  ███████╗██╗   ██╗███████╗████████╗███████╗███╗   ███╗██████╗     ")
