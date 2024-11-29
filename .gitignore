@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 *.so
 .Python
+
+# Distribution / packaging
 build/
 develop-eggs/
 dist/
@@ -19,6 +21,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # Virtual Environment
 venv/
@@ -46,3 +49,34 @@ Thumbs.db
 *.unit
 logs/
 temp/
+release/
+
+# Testing
+.coverage
+coverage.xml
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# PyInstaller
+*.spec
+*.manifest
+*.pyc
+
+# Documentation
+docs/_build/
+site/
+
+# Translations
+*.mo
+*.pot
+
+# Local development settings
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite3
