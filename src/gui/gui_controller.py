@@ -157,9 +157,10 @@ class GUIController:
             service_path = os.path.join(self.services_dir, f"{service.name}.json")
 
             service_data = {
-                'Unit': service.unit.__dict__,
-                'Service': service.service.__dict__,
-                'Install': service.install.__dict__
+                'name': service.name,
+                'unit': service.unit.__dict__,
+                'service': service.service.__dict__,
+                'install': service.install.__dict__
             }
 
             with open(service_path, 'w') as f:

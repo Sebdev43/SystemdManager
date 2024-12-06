@@ -1,112 +1,64 @@
-import os
+import PyInstaller.__main__
 import sys
-import shutil
-import subprocess
-from pathlib import Path
+import os
 
-def clean_build():
-    """Nettoie les dossiers de build précédents"""
-    dirs_to_clean = ['build', 'dist']
-    for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
-            shutil.rmtree(dir_name)
+def check_dependencies():
+    required_files = [
+        "src/main.py",
+        "src/i18n/locale",
+    ]
+    for file in required_files:
+        if not os.path.exists(file):
+            raise FileNotFoundError(f"Le fichier ou répertoire requis est manquant : {file}")
 
-def create_executable():
-    """Crée l'exécutable avec PyInstaller"""
-    spec_content = '''
-# -*- mode: python ; coding: utf-8 -*-
-
-block_cipher = None
-
-a = Analysis(
-    ['src/main.py'],
-    pathex=[],
-    binaries=[],
-    datas=[
-        ('src/i18n/locale', 'i18n/locale'),
-        ('README.md', '.'),
-        ('LICENSE', '.'),
-    ],
-    hiddenimports=['customtkinter', 'questionary'],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
-    noarchive=False,
-)
-
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
-    name='systemd-manager',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
-'''
+def build_application():
+    root_dir = os.path.dirname(os.path.abspath(__file__))
     
-    with open('systemd-manager.spec', 'w') as f:
-        f.write(spec_content)
+    PyInstaller.__main__.run([
+    'src/main.py',
+    '--name=systemd-manager',
+    '--onefile',
+    '--clean',
+    '--debug=all',
+    '--add-data=src/i18n/locale:i18n/locale',
+    '--hidden-import=pkg_resources.py2_warn',
+    '--hidden-import=jaraco.text',
+    '--hidden-import=setuptools',
+    '--hidden-import=PyQt6.QtCore',
+    '--hidden-import=PyQt6.QtGui',
+    '--hidden-import=PyQt6.QtWidgets',
+    '--hidden-import=customtkinter',
+    '--hidden-import=questionary',
+    '--hidden-import=ipaddress',
+    '--hidden-import=pyimod02_importers',
+    '--hidden-import=pyiboot01_bootstrap',
+    '--hidden-import=prompt_toolkit',
+    '--hidden-import=prompt_toolkit.key_binding.bindings.search',
+    '--hidden-import=prompt_toolkit.input.vt100',
+    '--hidden-import=prompt_toolkit.input.posix_utils',
+    '--hidden-import=termios',
+    '--hidden-import=tty',
+    '--hidden-import=tkinter',
+    '--add-binary=/usr/lib/x86_64-linux-gnu/libxcb-*:lib/',
 
-    subprocess.run(['pyinstaller', 'systemd-manager.spec'], check=True)
+    '--exclude-module=tkinter.test',
+    '--exclude-module=unittest',
+    '--noconsole',
+    '--windowed',
+    f'--workpath={os.path.join(root_dir, "build")}',
+    f'--distpath={os.path.join(root_dir, "dist")}'
+])
 
-def create_release_package():
-    """Crée le package de release"""
-    dist_dir = Path('dist')
-    release_dir = Path('release')
-    
-    if release_dir.exists():
-        shutil.rmtree(release_dir)
-    release_dir.mkdir()
 
-    # Copie l'exécutable
-    shutil.copy(dist_dir / 'systemd-manager', release_dir)
-    
-    # Crée le script d'installation
-    install_script = '''#!/bin/bash
-
-# Vérification des droits sudo
-if [ "$EUID" -ne 0 ]; then 
-    echo "Ce script doit être exécuté avec les droits sudo"
-    exit 1
-fi
-
-# Copie de l'exécutable
-cp systemd-manager /usr/local/bin/
-chmod +x /usr/local/bin/systemd-manager
-
-echo "Installation terminée !"
-echo "Vous pouvez maintenant lancer systemd-manager depuis n'importe quel terminal"
-'''
-    
-    with open(release_dir / 'install.sh', 'w') as f:
-        f.write(install_script)
-    
-    # Rend le script d'installation exécutable
-    os.chmod(release_dir / 'install.sh', 0o755)
-    
-    # Crée l'archive
-    shutil.make_archive('systemd-manager-linux', 'tar', 'release')
-
-if __name__ == '__main__':
-    clean_build()
-    create_executable()
-    create_release_package() 
+if __name__ == "__main__":
+    try:
+        print("🔨 Début de la compilation...")
+        check_dependencies()
+        build_application()
+        print("✅ Compilation terminée avec succès!")
+    except FileNotFoundError as fnfe:
+        print(f"❌ Fichier manquant : {str(fnfe)}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Erreur lors de la compilation: {str(e)}")
+        sys.exit(1)

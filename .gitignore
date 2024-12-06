@@ -29,7 +29,7 @@ env/
 ENV/
 .env/
 .venv/
-
+RELEASES.md
 # IDE specific files
 .idea/
 .vscode/

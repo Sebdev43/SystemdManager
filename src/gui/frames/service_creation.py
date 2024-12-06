@@ -432,6 +432,7 @@ class ServiceCreationFrame(ctk.CTkFrame):
 
             if validation_result.warnings:
                 warning_message = _("Avertissements:\n") + "\n".join(validation_result.warnings)
+            
             service = ServiceModel(config['name'])
             service.unit.description = config['description']
             service.service.type = config['type']
@@ -439,6 +440,7 @@ class ServiceCreationFrame(ctk.CTkFrame):
             service.service.working_directory = config['working_directory']
             service.service.exec_start = config['command']
             service.service.restart = config['restart']
+            
             try:
                 restart_sec = int(config['restart_sec']) if config['restart_sec'] else 0
                 service.service.restart_sec = restart_sec

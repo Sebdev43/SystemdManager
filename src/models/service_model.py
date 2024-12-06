@@ -128,22 +128,16 @@ class ServiceModel:
 
         return content
 
-    def save_to_json(self, filepath: str):
+    def to_json(self) -> dict:
         """
-        Save configuration to JSON file
-        
-        Args:
-            filepath (str): Path where to save the JSON file
+        Convertit le modèle en dictionnaire pour la sérialisation JSON
         """
-        data = {
-            'name': self.name,
-            'unit': self.unit.__dict__,
-            'service': self.service.__dict__,
-            'install': self.install.__dict__
+        return {
+            "name": self.name,  # Ajout du champ name
+            "unit": self.unit.__dict__,
+            "service": self.service.__dict__,
+            "install": self.install.__dict__
         }
-        
-        with open(filepath, 'w') as f:
-            json.dump(data, f, indent=4)
 
     @classmethod
     def load_from_json(cls, filepath: str) -> 'ServiceModel':
@@ -156,34 +150,36 @@ class ServiceModel:
         Returns:
             ServiceModel: Loaded service model instance
         """
-        with open(filepath, 'r') as f:
-            data = json.load(f)
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
             
-            # Migrate old configurations
-            if 'service' in data and 'start_limit_interval' in data['service']:
-                # Move start_limit_interval to unit section
-                if 'unit' not in data:
-                    data['unit'] = {}
-                data['unit']['start_limit_interval'] = data['service'].pop('start_limit_interval')
+            # Utiliser le nom du fichier comme nom du service
+            service_name = os.path.splitext(os.path.basename(filepath))[0]
+            service = cls(service_name)
             
-            if 'service' in data and 'start_limit_burst' in data['service']:
-                # Move start_limit_burst to unit section
-                if 'unit' not in data:
-                    data['unit'] = {}
-                data['unit']['start_limit_burst'] = data['service'].pop('start_limit_burst')
+            # Charger la section Unit
+            if isinstance(data.get('unit', {}), dict):
+                for key, value in data['unit'].items():
+                    if hasattr(service.unit, key):
+                        setattr(service.unit, key, value)
             
-            # Create service
-            service = cls(data['name'])
+            # Charger la section Service
+            if isinstance(data.get('service', {}), dict):
+                for key, value in data['service'].items():
+                    if hasattr(service.service, key):
+                        setattr(service.service, key, value)
             
-            # Load sections with default value handling
-            if 'unit' in data:
-                service.unit = UnitSection(**data['unit'])
-            if 'service' in data:
-                service.service = ServiceSection(**data['service'])
-            if 'install' in data:
-                service.install = InstallSection(**data['install'])
-                
+            # Charger la section Install
+            if isinstance(data.get('install', {}), dict):
+                for key, value in data['install'].items():
+                    if hasattr(service.install, key):
+                        setattr(service.install, key, value)
+            
             return service
+        
+        except Exception as e:
+            raise Exception(f"Erreur lors du chargement du service depuis {filepath}: {str(e)}")
 
     def handle_input(self, value: str, previous_step: callable = None):
         """
@@ -201,3 +197,24 @@ class ServiceModel:
         elif value.lower() == 'b' and previous_step:
             previous_step()
         return value
+
+    def save_to_json(self, filepath: str) -> None:
+        """
+        Sauvegarde la configuration du service dans un fichier JSON
+        
+        Args:
+            filepath (str): Chemin du fichier où sauvegarder la configuration
+        """
+        try:
+            # Conversion du modèle en dictionnaire
+            data = self.to_json()
+            
+            # Création du dossier parent si nécessaire
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+            # Sauvegarde dans le fichier JSON avec indentation pour la lisibilité
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=4)
+                
+        except Exception as e:
+            raise Exception(f"Erreur lors de la sauvegarde dans {filepath}: {str(e)}")

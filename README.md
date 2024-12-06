@@ -40,6 +40,8 @@ SystemD Manager simplifie la gestion des services systemd en proposant une inter
 - Droits sudo pour la gestion des services
 - Systemd
 
+⚠️ **Note importante**: Cette application a été développée sous Ubuntu 24.04. Des incompatibilités de dépendances peuvent survenir sur d'autres versions ou distributions Linux.
+
 ### 💻 Installation
 
 1. **Via le package binaire**
@@ -87,6 +89,7 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 
 ## Environnements testés
 
+- Ubuntu 24.04 LTS (Python 3.10, 3.11) - Environnement de développement principal
 - Ubuntu 22.04 LTS (Python 3.10, 3.11)
 - Ubuntu 20.04 LTS (Python 3.10, 3.11)
 
@@ -126,6 +129,8 @@ SystemD Manager simplifies systemd service management by providing both an intui
 - Python 3.10 or higher
 - Sudo rights for service management
 - Systemd
+
+⚠️ **Important note**: This application was developed on Ubuntu 24.04. Dependency incompatibilities may occur on other Linux versions or distributions.
 
 ### 💻 Installation
 
@@ -172,7 +177,8 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for more detai
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
 
-## Environnements testés
+## Tested Environments
 
+- Ubuntu 24.04 LTS (Python 3.10, 3.11) - Main development environment
 - Ubuntu 22.04 LTS (Python 3.10, 3.11)
 - Ubuntu 20.04 LTS (Python 3.10, 3.11)
