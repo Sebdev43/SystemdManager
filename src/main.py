@@ -16,43 +16,48 @@ Features:
     - Internationalization support
 """
 
-import sys
 import signal
+import sys
+
 import questionary
+
 from src.cli.cli_controller import CLIController
-from src.utils.banner import print_banner
 from src.gui.app import SystemdManagerApp
 from src.i18n.translations import i18n
+from src.utils.banner import print_banner
+
 
 def signal_handler(sig, frame):
 
     print("\n\n" + i18n.get_text("Au revoir ! 👋"))
     sys.exit(0)
 
+
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-questionary.prompts.confirm.KEYBOARD_INTERRUPT_MSG = None
-questionary.prompts.select.KEYBOARD_INTERRUPT_MSG = None
-questionary.prompts.text.KEYBOARD_INTERRUPT_MSG = None
+questionary.prompts.confirm.KEYBOARD_INTERRUPT_MSG = None  # type: ignore[attr-defined]
+questionary.prompts.select.KEYBOARD_INTERRUPT_MSG = None  # type: ignore[attr-defined]
+questionary.prompts.text.KEYBOARD_INTERRUPT_MSG = None  # type: ignore[attr-defined]
 
-questionary.prompts.confirm.DEFAULT_KBI_MESSAGE = None
-questionary.prompts.select.DEFAULT_KBI_MESSAGE = None
-questionary.prompts.text.DEFAULT_KBI_MESSAGE = None
+questionary.prompts.confirm.DEFAULT_KBI_MESSAGE = None  # type: ignore[attr-defined]
+questionary.prompts.select.DEFAULT_KBI_MESSAGE = None  # type: ignore[attr-defined]
+questionary.prompts.text.DEFAULT_KBI_MESSAGE = None  # type: ignore[attr-defined]
+
 
 def main():
 
-    print_banner()  
+    print_banner()
 
     interface = questionary.select(
         i18n.get_text("Choisissez votre interface :"),
         choices=[
             i18n.get_text("🖥️  Interface graphique (GUI)"),
             i18n.get_text("💻 Interface en ligne de commande (CLI)"),
-            i18n.get_text("❌ Quitter")
-        ]
+            i18n.get_text("❌ Quitter"),
+        ],
     ).ask()
-    
+
     if interface == i18n.get_text("❌ Quitter"):
         print("\n" + i18n.get_text("Au revoir ! 👋"))
         sys.exit(0)
@@ -60,11 +65,11 @@ def main():
         app = SystemdManagerApp()
         app.mainloop()
     else:
-
         cli = CLIController()
         if not cli.check_sudo():
             cli.request_sudo(i18n.get_text("⚠️  Droits administrateur requis pour"))
         cli.main_menu()
+
 
 if __name__ == "__main__":
     main()

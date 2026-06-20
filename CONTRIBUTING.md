@@ -20,8 +20,7 @@
 ### 💻 Standards de Code
 
 - **Style**
-  - Utilisez Black pour le formatage
-  - Suivez les règles Flake8
+  - Utilisez Ruff pour le formatage et le lint (`ruff format` / `ruff check`)
   - Validation MyPy pour le typage
 
 - **Conventions de nommage**
@@ -37,15 +36,15 @@
 ### ✅ Tests
 
 ```bash
-# Installation des dépendances de développement
-pip install -r requirements.txt
+# Installation des dépendances de développement (pyproject.toml)
+pip install -e ".[dev]"   # ou : uv sync
 
 # Lancement des tests
-pytest tests/
+pytest                    # ou : uv run pytest
 
 # Vérification du style
-black src/
-flake8 src/
+ruff format src/
+ruff check src/
 mypy src/
 ```
 
@@ -96,8 +95,7 @@ mypy src/
 ### 💻 Code Standards
 
 - **Style**
-  - Use Black for formatting
-  - Follow Flake8 rules
+  - Use Ruff for formatting and linting (`ruff format` / `ruff check`)
   - MyPy validation for typing
 
 - **Naming Conventions**
@@ -113,15 +111,15 @@ mypy src/
 ### ✅ Tests
 
 ```bash
-# Install development dependencies
-pip install -r requirements.txt
+# Install development dependencies (pyproject.toml)
+pip install -e ".[dev]"   # or: uv sync
 
 # Run tests
-pytest tests/
+pytest                    # or: uv run pytest
 
 # Check style
-black src/
-flake8 src/
+ruff format src/
+ruff check src/
 mypy src/
 ```
 

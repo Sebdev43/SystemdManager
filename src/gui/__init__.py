@@ -1,3 +1,3 @@
 from .app import SystemdManagerApp
 
-__all__ = ['SystemdManagerApp']
+__all__ = ["SystemdManagerApp"]

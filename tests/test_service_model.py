@@ -1,7 +1,14 @@
-import pytest
 import os
-import json
-from src.models.service_model import ServiceModel, UnitSection, ServiceSection, InstallSection
+
+import pytest
+
+from src.models.service_model import (
+    InstallSection,
+    ServiceModel,
+    ServiceSection,
+    UnitSection,
+)
+
 
 def test_service_model_creation(basic_service):
 
@@ -12,12 +19,14 @@ def test_service_model_creation(basic_service):
     assert basic_service.service.user == "testuser"
     assert basic_service.install.wanted_by == ["multi-user.target"]
 
+
 def test_service_sections():
 
     service = ServiceModel("test")
     assert isinstance(service.unit, UnitSection)
     assert isinstance(service.service, ServiceSection)
     assert isinstance(service.install, InstallSection)
+
 
 def test_systemd_format(basic_service):
 
@@ -31,18 +40,23 @@ def test_systemd_format(basic_service):
     assert "[Install]" in output
     assert "WantedBy=multi-user.target" in output
 
+
 def test_json_serialization(basic_service, temp_dir):
 
     json_path = os.path.join(temp_dir, "service.json")
     basic_service.save_to_json(json_path)
-    
+
     loaded_service = ServiceModel.load_from_json(json_path)
     assert loaded_service.name == basic_service.name
     assert loaded_service.unit.description == basic_service.unit.description
-    assert loaded_service.service.working_directory == basic_service.service.working_directory
+    assert (
+        loaded_service.service.working_directory
+        == basic_service.service.working_directory
+    )
     assert loaded_service.service.exec_start == basic_service.service.exec_start
     assert loaded_service.service.user == basic_service.service.user
     assert loaded_service.install.wanted_by == basic_service.install.wanted_by
+
 
 def test_service_validation():
 
@@ -53,7 +67,7 @@ def test_service_validation():
     assert service.service.restart_sec == 0
     assert service.service.nice == 0
     assert service.service.cpu_quota == 100
-    assert service.service.remain_after_exit == True
+    assert service.service.remain_after_exit
 
     assert service.unit.after is None
     assert service.unit.before is None
@@ -63,13 +77,17 @@ def test_service_validation():
     assert service.install.required_by is None
     assert service.install.also is None
 
-@pytest.mark.parametrize("name,expected", [
-    ("my-service", "my-service"),
-    ("My Service", "My Service"),
-    ("my_service!", "my_service!"),
-    ("my.service", "my.service"),
-    ("MY_SERVICE_123", "MY_SERVICE_123")
-])
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("my-service", "my-service"),
+        ("My Service", "My Service"),
+        ("my_service!", "my_service!"),
+        ("my.service", "my.service"),
+        ("MY_SERVICE_123", "MY_SERVICE_123"),
+    ],
+)
 def test_service_name_sanitization(name, expected):
 
     service = ServiceModel(name)
