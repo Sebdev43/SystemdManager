@@ -46,14 +46,15 @@ SystemD Manager simplifie la gestion des services systemd en proposant une inter
 
 1. **Via le package binaire**
    - Téléchargez `systemd-manager-linux.tar` depuis la [page des releases](https://github.com/Sebdev43/SystemdManager/releases)
-   - Suivez les instructions dans [RELEASE.md](RELEASE.md)
+   - Extrayez l'archive : `tar -xf systemd-manager-linux.tar`
+   - Installez : `cd systemd-manager && sudo ./install.sh`
 
 2. **Depuis les sources (pour le développement)**
 
 ```bash
 git clone https://github.com/Sebdev43/SystemdManager.git
 cd SystemdManager
-python3 -m pip install -r requirements.txt
+python3 -m pip install -e ".[dev]"   # ou : uv sync
 ```
 
 ### 🚀 Utilisation
@@ -136,14 +137,15 @@ SystemD Manager simplifies systemd service management by providing both an intui
 
 1. **Via binary package**
    - Download `systemd-manager-linux.tar` from the [releases page](https://github.com/Sebdev43/SystemdManager/releases)
-   - Follow instructions in [RELEASE.md](RELEASE.md)
+   - Extract the archive: `tar -xf systemd-manager-linux.tar`
+   - Install: `cd systemd-manager && sudo ./install.sh`
 
 2. **From source (for development)**
 
 ```bash
 git clone https://github.com/Sebdev43/SystemdManager.git
 cd SystemdManager
-python3 -m pip install -r requirements.txt
+python3 -m pip install -e ".[dev]"   # or: uv sync
 ```
 
 ### 🚀 Usage

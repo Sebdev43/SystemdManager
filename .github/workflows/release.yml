@@ -34,6 +34,7 @@ jobs:
       - name: Build package
         run: |
           python build.py
+          bash script/create_release_package.sh
 
       - name: Get version from tag
         id: get_version

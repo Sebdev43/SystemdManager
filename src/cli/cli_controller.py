@@ -1031,7 +1031,9 @@ class CLIController:
         status = {
             "active": self._command_output(["systemctl", "is-active", service_name]),
             "enabled": self._command_output(["systemctl", "is-enabled", service_name]),
-            "status": self._command_output(["systemctl", "status", service_name]),
+            "status": self._command_output(
+                ["systemctl", "status", service_name, "--no-pager"]
+            ),
             "config": os.path.join(self.services_dir, f"{service_name}.json"),
             "log": os.path.join(self.logs_dir, f"{service_name}.log"),
         }

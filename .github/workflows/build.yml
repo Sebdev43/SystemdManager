@@ -44,6 +44,7 @@ jobs:
     - name: Build package
       run: |
         python build.py
+        bash script/create_release_package.sh
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v3

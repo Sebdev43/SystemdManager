@@ -185,21 +185,22 @@ def test_service_model_migration():
 
 @patch("questionary.select")
 @patch("questionary.text")
-@pytest.mark.skip(reason="Désactivé temporairement en raison d'une erreur")
 def test_edit_service_restart_limits(mock_text, mock_select, cli_controller):
 
     service = ServiceModel("test-service")
 
+    # Current edit_unit_section flow: separate interval + burst options.
     mock_select.return_value.ask.side_effect = [
-        "⏱️  Limites de redémarrage",
-        "↩️  Retour",
+        "⏰ Délai avant redémarrage",  # EDIT_START_LIMIT_INTERVAL
+        "🔄 Nombre de redémarrages",  # EDIT_START_LIMIT_BURST
+        "↩️  Retour",  # BACK
     ]
-    mock_text.return_value.ask.side_effect = ["10", "300"]
+    mock_text.return_value.ask.side_effect = ["300", "10"]
 
     cli_controller.edit_unit_section(service)
 
-    assert service.unit.start_limit_burst == 10
     assert service.unit.start_limit_interval == 300
+    assert service.unit.start_limit_burst == 10
 
 
 @patch("questionary.select")

@@ -196,7 +196,8 @@ class ServiceModel:
 
         # Clean shutdown for screen sessions (Arch Wiki canonical pattern).
         if screen_mode and session and not self.service.exec_stop:
-            content += f"ExecStop={screen_stop_command(session)}\n"
+            stop = _assert_single_line(screen_stop_command(session))
+            content += f"ExecStop={stop}\n"
 
         content += "\n[Install]\n"
         if self.install.wanted_by:
