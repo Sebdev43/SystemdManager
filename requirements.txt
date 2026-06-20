@@ -2,9 +2,8 @@
 # Development and build tools live in pyproject.toml
 # ([project.optional-dependencies] dev). Install them with:
 #   pip install -e ".[dev]"     (or: uv sync)
-PyQt6==6.6.1
-questionary==2.0.1
+PyQt6==6.11.0
+questionary==2.1.1
 customtkinter==5.2.2
 python-i18n==0.3.9
-psutil==5.9.8
-typing-extensions==4.9.0
+typing-extensions==4.15.0
