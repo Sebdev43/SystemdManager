@@ -19,7 +19,6 @@ def build_application():
     '--name=systemd-manager',
     '--onefile',
     '--clean',
-    '--debug=all',
     '--add-data=src/i18n/locale:i18n/locale',
     '--hidden-import=pkg_resources.py2_warn',
     '--hidden-import=jaraco.text',

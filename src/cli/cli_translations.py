@@ -780,7 +780,7 @@ class CLITranslations:
                     config = json.load(f)
                     self.current_locale = config.get("language", "fr")
                     self.translations = cli_translations_en if self.current_locale == "en" else cli_translations_fr
-            except:
+            except (OSError, json.JSONDecodeError):
                 self.current_locale = "fr"
 
     def save_config(self):

@@ -226,7 +226,7 @@ class ServiceListFrame(ctk.CTkFrame):
         if self.selected_frame and self.selected_frame.winfo_exists():
             try:
                 self.selected_frame.configure(fg_color=self.normal_color)
-            except:
+            except Exception:
                 pass  
 
         self.selected_service = service
@@ -234,7 +234,7 @@ class ServiceListFrame(ctk.CTkFrame):
 
         try:
             frame.configure(fg_color=self.selected_color)
-        except:
+        except Exception:
             pass  
  
         self.update_buttons_state()
