@@ -3,12 +3,6 @@ import json
 import subprocess
 from typing import List, Optional
 from src.models.service_model import ServiceModel
-from src.models.screen import (
-    is_screen_command,
-    normalize_screen_command,
-    screen_session_from_command,
-    screen_stop_command,
-)
 import customtkinter
 
 class GUIController:
@@ -161,71 +155,14 @@ class GUIController:
         try:
 
             service_path = os.path.join(self.services_dir, f"{service.name}.json")
+            service.save_to_json(service_path)
 
-            service_data = {
-                'name': service.name,
-                'unit': service.unit.__dict__,
-                'service': service.service.__dict__,
-                'install': service.install.__dict__
-            }
-
-            with open(service_path, 'w') as f:
-                json.dump(service_data, f, indent=4)
-
+            # Single source of truth for unit-file generation (CLI and GUI both
+            # render through ServiceModel.to_systemd_file).
             systemd_path = f"/etc/systemd/system/{service.name}.service"
-            systemd_content = []
-
-            systemd_content.append("[Unit]")
-            if service.unit.description:
-                systemd_content.append(f"Description={service.unit.description}")
-            if hasattr(service.unit, 'start_limit_burst') and service.unit.start_limit_burst:
-                systemd_content.append(f"StartLimitBurst={service.unit.start_limit_burst}")
-
-            systemd_content.append("\n[Service]")
-
-            # GNU Screen services must use the non-forking -DmS form with
-            # Type=simple so systemd keeps tracking the process
-            # (see src/models/screen.py for the rationale and references).
-            screen_mode = is_screen_command(service.service.exec_start)
-            session = (
-                screen_session_from_command(service.service.exec_start)
-                if screen_mode
-                else None
-            )
-
-            if screen_mode:
-                systemd_content.append("Type=simple")
-            elif service.service.type:
-                systemd_content.append(f"Type={service.service.type}")
-            if service.service.user:
-                systemd_content.append(f"User={service.service.user}")
-            if service.service.working_directory:
-                systemd_content.append(f"WorkingDirectory={service.service.working_directory}")
-            if service.service.exec_start:
-                exec_start = (
-                    normalize_screen_command(service.service.exec_start)
-                    if screen_mode
-                    else service.service.exec_start
-                )
-                systemd_content.append(f"ExecStart={exec_start}")
-            if screen_mode and session:
-                systemd_content.append(f"ExecStop={screen_stop_command(session)}")
-            if service.service.restart:
-                systemd_content.append(f"Restart={service.service.restart}")
-            if service.service.restart_sec:
-                systemd_content.append(f"RestartSec={service.service.restart_sec}")
-            if hasattr(service.service, 'start_limit_burst') and service.service.start_limit_burst:
-                systemd_content.append(f"StartLimitBurst={service.service.start_limit_burst}")
-            if service.service.remain_after_exit and not screen_mode:
-                systemd_content.append("RemainAfterExit=yes")
-
-            systemd_content.append("\n[Install]")
-            if service.install.wanted_by:
-                systemd_content.append(f"WantedBy={','.join(service.install.wanted_by)}")
-
             with open("/tmp/service.tmp", 'w') as f:
-                f.write("\n".join(systemd_content))
-            
+                f.write(service.to_systemd_file())
+
             subprocess.run(["sudo", "mv", "/tmp/service.tmp", systemd_path], check=True)
             subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
             

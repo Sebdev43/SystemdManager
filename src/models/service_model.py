@@ -109,10 +109,15 @@ class ServiceModel:
         content += f"Description={self.unit.description}\n"
         
         # Add non-empty Unit options
+        if self.unit.after:
+            content += f"After={' '.join(self.unit.after)}\n"
         if self.unit.start_limit_burst:
             content += f"StartLimitBurst={self.unit.start_limit_burst}\n"
         if self.unit.start_limit_interval:
-            content += f"StartLimitInterval={self.unit.start_limit_interval}\n"
+            # StartLimitIntervalSec is the current name (renamed from the
+            # legacy alias StartLimitInterval in systemd v229); StartLimit*
+            # directives belong in [Unit]. A plain integer means seconds.
+            content += f"StartLimitIntervalSec={self.unit.start_limit_interval}\n"
 
         content += "\n[Service]\n"
 
@@ -153,8 +158,12 @@ class ServiceModel:
                 content += f"WorkingDirectory={value}\n"
             elif key == "user":
                 content += f"User={value}\n"
+            elif key == "group":
+                content += f"Group={value}\n"
             elif key == "restart":
                 content += f"Restart={value}\n"
+            elif key == "restart_sec":
+                content += f"RestartSec={value}\n"
             elif key == "remain_after_exit":
                 # RemainAfterExit must not be set for screen services: with
                 # -DmS systemd already tracks the live process.
