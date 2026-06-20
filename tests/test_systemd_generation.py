@@ -4,6 +4,8 @@ Both the CLI and the GUI now render through this single method, so these tests
 lock the directive set and formatting. Dependency-free (no GUI imports).
 """
 
+import pytest
+
 from src.models.service_model import ServiceModel
 
 
@@ -86,3 +88,73 @@ def test_full_non_screen_render_has_all_sections_and_fields():
         "WantedBy=multi-user.target",
     ]:
         assert expected in out, f"missing directive: {expected}"
+
+
+# --- directive-injection hardening (newline rejection) ---------------------
+
+
+@pytest.mark.parametrize("payload", ["app\nUser=root", "app\rUser=root"])
+def test_newline_in_exec_start_is_rejected(payload):
+    service = _service()
+    service.service.exec_start = payload
+    with pytest.raises(ValueError):
+        service.to_systemd_file()
+
+
+def test_newline_in_description_is_rejected():
+    service = _service()
+    service.unit.description = "ok\nExecStart=/evil"
+    with pytest.raises(ValueError):
+        service.to_systemd_file()
+
+
+def test_newline_in_user_is_rejected():
+    service = _service()
+    service.service.user = "root\nGroup=wheel"
+    with pytest.raises(ValueError):
+        service.to_systemd_file()
+
+
+def test_newline_in_after_element_is_rejected():
+    service = _service()
+    service.unit.after = ["network.target\nExecStartPre=/evil"]
+    with pytest.raises(ValueError):
+        service.to_systemd_file()
+
+
+def test_newline_in_wanted_by_element_is_rejected():
+    service = _service()
+    service.install.wanted_by = ["multi-user.target\nAlias=evil"]
+    with pytest.raises(ValueError):
+        service.to_systemd_file()
+
+
+def test_clean_values_still_render_after_hardening():
+    service = _service()
+    out = service.to_systemd_file()
+    assert "User=appuser" in out
+    assert "ExecStart=/opt/web/app.py" in out
+
+
+def test_newline_in_numeric_unit_field_is_rejected():
+    # A corrupted JSON can set an int-typed field to a string (load_from_json
+    # does not coerce); int() must fail-fast on an embedded newline.
+    service = _service()
+    service.unit.start_limit_burst = "5\nExecStartPre=/bin/evil"
+    with pytest.raises(ValueError):
+        service.to_systemd_file()
+
+
+def test_newline_in_restart_sec_is_rejected():
+    service = _service()
+    service.service.restart = "always"
+    service.service.restart_sec = "3\nUser=root"
+    with pytest.raises(ValueError):
+        service.to_systemd_file()
+
+
+def test_newline_in_remain_after_exit_is_rejected():
+    service = _service()
+    service.service.remain_after_exit = "true\nExecStop=/bin/evil"
+    with pytest.raises(ValueError):
+        service.to_systemd_file()

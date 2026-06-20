@@ -19,6 +19,23 @@ from src.models.screen import (
 _VALID_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]*$")
 
 
+def _assert_single_line(value: str) -> str:
+    """Return ``value`` unchanged, or raise ``ValueError`` on a line break.
+
+    systemd unit files are line-based (``key=value``, one directive per line;
+    only a trailing backslash continues a line — see systemd.syntax(7)). A raw
+    newline in a directive value would terminate the directive and let the
+    remainder be parsed as further directives, i.e. directive injection into a
+    root-owned unit file. Reject it rather than emit a corrupted/injected unit.
+    """
+    if "\n" in value or "\r" in value:
+        raise ValueError(
+            "Valeur de directive systemd invalide (saut de ligne interdit): "
+            f"{value!r}"
+        )
+    return value
+
+
 @dataclass
 class UnitSection:
     """[Unit] Section - General service information"""
@@ -106,18 +123,21 @@ class ServiceModel:
             str: Service configuration in systemd format
         """
         content = "[Unit]\n"
-        content += f"Description={self.unit.description}\n"
-        
+        content += f"Description={_assert_single_line(self.unit.description)}\n"
+
         # Add non-empty Unit options
         if self.unit.after:
-            content += f"After={' '.join(self.unit.after)}\n"
+            after = " ".join(_assert_single_line(a) for a in self.unit.after)
+            content += f"After={after}\n"
         if self.unit.start_limit_burst:
-            content += f"StartLimitBurst={self.unit.start_limit_burst}\n"
+            content += f"StartLimitBurst={int(self.unit.start_limit_burst)}\n"
         if self.unit.start_limit_interval:
             # StartLimitIntervalSec is the current name (renamed from the
             # legacy alias StartLimitInterval in systemd v229); StartLimit*
             # directives belong in [Unit]. A plain integer means seconds.
-            content += f"StartLimitIntervalSec={self.unit.start_limit_interval}\n"
+            content += (
+                f"StartLimitIntervalSec={int(self.unit.start_limit_interval)}\n"
+            )
 
         content += "\n[Service]\n"
 
@@ -141,34 +161,36 @@ class ServiceModel:
                 if screen_mode:
                     # Keep the screen command verbatim but normalise a legacy
                     # forking -dmS flag to the non-forking -DmS form.
-                    content += f"ExecStart={normalize_screen_command(value)}\n"
+                    command = normalize_screen_command(_assert_single_line(value))
+                    content += f"ExecStart={command}\n"
                 else:
                     # Use absolute path for other commands
                     full_path = os.path.join(
                         self.service.working_directory, value
                     )
-                    content += f"ExecStart={full_path}\n"
+                    content += f"ExecStart={_assert_single_line(full_path)}\n"
             elif key == "type":
                 # Type for screen services is forced to simple above.
                 if not screen_mode:
-                    content += f"Type={value}\n"
+                    content += f"Type={_assert_single_line(value)}\n"
             elif key == "exec_stop":
-                content += f"ExecStop={value}\n"
+                content += f"ExecStop={_assert_single_line(value)}\n"
             elif key == "working_directory":
-                content += f"WorkingDirectory={value}\n"
+                content += f"WorkingDirectory={_assert_single_line(value)}\n"
             elif key == "user":
-                content += f"User={value}\n"
+                content += f"User={_assert_single_line(value)}\n"
             elif key == "group":
-                content += f"Group={value}\n"
+                content += f"Group={_assert_single_line(value)}\n"
             elif key == "restart":
-                content += f"Restart={value}\n"
+                content += f"Restart={_assert_single_line(value)}\n"
             elif key == "restart_sec":
-                content += f"RestartSec={value}\n"
+                content += f"RestartSec={int(value)}\n"
             elif key == "remain_after_exit":
                 # RemainAfterExit must not be set for screen services: with
                 # -DmS systemd already tracks the live process.
                 if not screen_mode:
-                    content += f"RemainAfterExit={str(value).lower()}\n"
+                    remain = _assert_single_line(str(value)).lower()
+                    content += f"RemainAfterExit={remain}\n"
 
         # Clean shutdown for screen sessions (Arch Wiki canonical pattern).
         if screen_mode and session and not self.service.exec_stop:
@@ -176,7 +198,10 @@ class ServiceModel:
 
         content += "\n[Install]\n"
         if self.install.wanted_by:
-            content += f"WantedBy={' '.join(self.install.wanted_by)}\n"
+            targets = " ".join(
+                _assert_single_line(t) for t in self.install.wanted_by
+            )
+            content += f"WantedBy={targets}\n"
 
         return content
 
