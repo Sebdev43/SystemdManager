@@ -1,5 +1,3 @@
-import os
-
 BLUE = "\033[34m"
 CYAN = "\033[36m"
 RED = "\033[31m"
@@ -10,7 +8,9 @@ ITALIC = "\033[3m"
 
 
 def print_banner():
-    os.system("clear")
+    # Clear the screen via ANSI escapes (the app already requires an ANSI
+    # terminal — see the colour codes above) instead of shelling out.
+    print("\033[2J\033[H", end="")
     print("")
     print(f"{BLUE}")
     print("  ███████╗██╗   ██╗███████╗████████╗███████╗███╗   ███╗██████╗     ")

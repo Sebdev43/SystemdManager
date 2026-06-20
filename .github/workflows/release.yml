@@ -47,7 +47,6 @@ jobs:
           files: |
             systemd-manager-linux.tar
             README.md
-            RELEASE.md
             LICENSE
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
