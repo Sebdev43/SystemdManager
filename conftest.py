@@ -1,4 +1,5 @@
 """Configuration pour pytest"""
+
 import os
 import sys
 

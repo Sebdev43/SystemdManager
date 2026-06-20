@@ -2,8 +2,9 @@
 Module de traductions pour l'interface CLI dans SystemdManager
 """
 
-import os
 import json
+import os
+
 
 # Clés de traduction
 class TranslationKeys:
@@ -259,7 +260,9 @@ class TranslationKeys:
     # Configuration du redémarrage
     RESTART_CONFIGURATION = "RESTART_CONFIGURATION"
     RESTART_CONFIGURATION_TITLE = "🔄 Restart Options Configuration"
-    RESTART_CONFIGURATION_DESCRIPTION = "Configure how the service should behave when it stops"
+    RESTART_CONFIGURATION_DESCRIPTION = (
+        "Configure how the service should behave when it stops"
+    )
 
     # Configuration des redémarrages
     RESTART_POLICY_ABNORMAL = "RESTART_POLICY_ABNORMAL"
@@ -380,7 +383,6 @@ cli_translations_fr = {
     TranslationKeys.MAX_RESTARTS: "🔄 Nombre maximum de redémarrages",
     TranslationKeys.CONFIGURE_FINAL_SERVICE: "🔧 Configuration finale du service",
     TranslationKeys.MAX_RESTARTS_SET: "✅ Nombre maximum de redémarrages défini à {restarts}",
-
     # Messages d'erreur et d'administration
     TranslationKeys.ADMIN_RIGHTS_REQUIRED: "⚠️  Droits administrateur requis pour",
     TranslationKeys.RELAUNCH_WITH_SUDO: "📌 Relancez avec sudo",
@@ -401,13 +403,11 @@ cli_translations_fr = {
     TranslationKeys.SERVICE_INSTALLED_BUT_NOT_ACTIVE: "Le service est installé mais n'est pas actif",
     TranslationKeys.INSTALL_SERVICE_ACTION: "installer le service",
     TranslationKeys.SERVICE_NAME_REQUIRED: "❌ Le nom du service est requis.",
-
     # Messages de validation
     TranslationKeys.SERVICE_NAME_VALIDATION: "Le nom du service ne peut contenir que des lettres, chiffres, tirets et underscores",
     TranslationKeys.SERVICE_NAME_MIN_LENGTH: "Le nom du service doit faire au moins 1 caractère",
     TranslationKeys.SERVICE_NAME_NO_NUMBER_START: "Le nom du service ne doit pas commencer par un chiffre",
     TranslationKeys.SERVICE_ALREADY_EXISTS: "Un service avec ce nom existe déjà",
-
     # Interface principale
     TranslationKeys.MAIN_TITLE: "🚀 Gestionnaire de services systemd",
     TranslationKeys.WHAT_DO_YOU_WANT_TO_DO: "Que souhaitez-vous faire ?",
@@ -418,7 +418,6 @@ cli_translations_fr = {
     TranslationKeys.CHOOSE_LANGUAGE: "🌍 Choisissez votre langue",
     TranslationKeys.FRENCH: "🇫🇷 Français",
     TranslationKeys.ENGLISH: "🇬🇧 Anglais",
-
     # Configuration du service
     TranslationKeys.SERVICE_NAME: "Nom du service",
     TranslationKeys.DESCRIPTION: "Description",
@@ -431,7 +430,6 @@ cli_translations_fr = {
     TranslationKeys.FORKING_TYPE: "forking - Le processus se détache en arrière-plan",
     TranslationKeys.ONESHOT_TYPE: "oneshot - S'exécute une fois et s'arrête",
     TranslationKeys.NOTIFY_TYPE: "notify - Comme simple mais notifie quand il est prêt",
-
     # Messages de progression
     TranslationKeys.PROGRESS_STEP: "🔄 Étape {step}/{total}: {name}",
     TranslationKeys.USE_BACK_TO_GO_BACK: "Utilisez ↩️  pour revenir en arrière à tout moment",
@@ -440,7 +438,6 @@ cli_translations_fr = {
     TranslationKeys.MSG_CHOOSE_SERVICE: "Choisissez un service",
     TranslationKeys.MSG_CHOOSE_ACTION: "Choisissez une action",
     TranslationKeys.BACK: "↩️  Retour",
-
     # Actions sur les services
     TranslationKeys.START_SERVICE: "🚀 Démarrer",
     TranslationKeys.STOP_SERVICE: "🛑 Arrêter",
@@ -449,7 +446,6 @@ cli_translations_fr = {
     TranslationKeys.VIEW_LOGS: "📜 Voir les logs",
     TranslationKeys.EDIT_SERVICE_ACTION: "📝 Modifier",
     TranslationKeys.DELETE_SERVICE_ACTION: "🗑️  Supprimer",
-
     # Messages de succès
     TranslationKeys.SERVICE_INITIALIZED: "✅ Service '{name}' initialisé",
     TranslationKeys.DESCRIPTION_ADDED: "✅ Description ajoutée",
@@ -462,14 +458,12 @@ cli_translations_fr = {
     TranslationKeys.SERVICE_STARTED_SUCCESSFULLY: "✅ Service {name} démarré avec succès",
     TranslationKeys.SERVICE_STOPPED_SUCCESSFULLY: "✅ Service {name} arrêté avec succès",
     TranslationKeys.SERVICE_RESTARTED_SUCCESSFULLY: "✅ Service {name} redémarré avec succès",
-
     # Instructions et messages pour le nom du service
     TranslationKeys.ENTER_SERVICE_NAME_INSTRUCTION: "Entrez un nom (lettres, chiffres, - et _ uniquement)\n'b' pour revenir en arrière, 'q' pour quitter",
     TranslationKeys.ENTER_SERVICE_DESCRIPTION_INSTRUCTION: "Décrivez brièvement le service\n'b' pour revenir, 'q' pour quitter",
     TranslationKeys.CONFIRM_QUIT: "Êtes-vous sûr de vouloir quitter ?",
     TranslationKeys.INVALID_NAME: "❌ Nom invalide. Utilisez uniquement des lettres, des chiffres, - et _",
     TranslationKeys.SELECT_USER_TO_RUN_SERVICE: "Sélectionnez l'utilisateur qui exécutera le service :",
-
     # Messages pour le dossier de travail
     TranslationKeys.BROWSE_DIRECTORIES: "📂 Parcourir les dossiers",
     TranslationKeys.ENTER_PATH_MANUALLY: "📝 Saisir le chemin manuellement",
@@ -477,12 +471,10 @@ cli_translations_fr = {
     TranslationKeys.ENTER_FULL_DIRECTORY_PATH: "Entrez le chemin complet du dossier de travail :",
     TranslationKeys.DIRECTORY_DOES_NOT_EXIST: "Le dossier {directory} n'existe pas",
     TranslationKeys.NOT_A_DIRECTORY: "{directory} n'est pas un dossier",
-
     # Messages pour la navigation des dossiers
     TranslationKeys.CURRENT_DIRECTORY: "Dossier actuel :",
     TranslationKeys.SELECT_DIRECTORY: "Sélectionnez un dossier :",
     TranslationKeys.SELECT_THIS_DIRECTORY: "✅ Sélectionner ce dossier",
-
     # Messages pour la commande d'exécution
     TranslationKeys.SPECIFY_COMMAND_METHOD: "Comment souhaitez-vous spécifier la commande ?",
     TranslationKeys.SELECT_EXECUTABLE_FILE: "📂 Sélectionner un fichier exécutable",
@@ -493,7 +485,6 @@ cli_translations_fr = {
     TranslationKeys.ENTER_EXECUTION_COMMAND: "Entrez la commande d'exécution :",
     TranslationKeys.EXAMPLE_COMMAND: "Exemple : python3 script.py ou ./executable",
     TranslationKeys.RUN_SERVICE_IN_SCREEN: "Voulez-vous exécuter ce service dans screen ?",
-
     # Autres messages
     TranslationKeys.QUIT_WITHOUT_SAVING: "Quitter sans sauvegarder",
     TranslationKeys.WANT_TO_RETRY: "Voulez-vous réessayer ?",
@@ -516,14 +507,12 @@ cli_translations_fr = {
     TranslationKeys.SERVICE_FILE_DELETED: "🗑️  Fichier service supprimé : {path}",
     TranslationKeys.CONFIGURATION_DELETED: "🗑️  Configuration supprimée : {path}",
     TranslationKeys.SERVICE_FULLY_DELETED: "✅ Service {name} complètement supprimé",
-
     # Édition des sections
     TranslationKeys.WHICH_SECTION_TO_EDIT: "Quelle section voulez-vous modifier ?",
     TranslationKeys.SECTION_UNIT: "📋 Section [Unit] - Description et dépendances",
     TranslationKeys.SECTION_SERVICE: "⚙️  Section [Service] - Configuration du service",
     TranslationKeys.SECTION_INSTALL: "🔌 Section [Install] - Installation et démarrage",
     TranslationKeys.SAVE_AND_APPLY_CHANGES: "💾 Sauvegarder et appliquer les modifications",
-
     # Modifications des sections
     TranslationKeys.WHAT_DO_YOU_WANT_TO_MODIFY: "Que souhaitez-vous modifier ?",
     TranslationKeys.DESCRIPTION: "📝 Description",
@@ -539,22 +528,17 @@ cli_translations_fr = {
     TranslationKeys.RESTART_POLICY: "🔄 Politique de redémarrage",
     TranslationKeys.RESTART_SEC: "⏱️  Délai de redémarrage",
     TranslationKeys.MAX_RESTARTS_ALLOWED: "🔄 Nombre maximum de redémarrages",
-
     # Politique de redémarrage
     TranslationKeys.CHOOSE_RESTART_POLICY: "Choisissez la politique de redémarrage :",
-
     # Entrées invalides
     TranslationKeys.INVALID_INPUT: "Entrée invalide.",
-
     # Autres
     TranslationKeys.RETRY: "Réessayer",
     TranslationKeys.RETOUR: "Retour",
     TranslationKeys.EXITING: "Au revoir ! 👋",
-
     # Instructions pour quitter ou revenir
     TranslationKeys.ENTER_B_TO_GO_BACK: "'b' pour revenir",
     TranslationKeys.ENTER_Q_TO_QUIT: "'q' pour quitter",
-
     # Messages pour le timer (si nécessaire)
     TranslationKeys.CONFIGURE_TIMER: "Voulez-vous configurer un timer ?",
     TranslationKeys.TIMER_TYPE: "Type de timer :",
@@ -568,26 +552,22 @@ cli_translations_fr = {
     TranslationKeys.ON_BOOT_SEC: "OnBootSec={seconds}s",
     TranslationKeys.ON_UNIT_ACTIVE_SEC: "OnUnitActiveSec={seconds}s",
     TranslationKeys.ON_CALENDAR: "OnCalendar=*-*-* {time}:00",
-
     # Confirmation
     TranslationKeys.CONFIRMATION: "Confirmation",
     TranslationKeys.ARE_YOU_SURE: "Êtes-vous sûr ?",
     TranslationKeys.YES: "Oui",
     TranslationKeys.NO: "Non",
-
     # Clés pour les options de redémarrage
     TranslationKeys.RESTART_NO_KEY: "non",
     TranslationKeys.RESTART_ALWAYS_KEY: "toujours",
     TranslationKeys.RESTART_ON_FAILURE_KEY: "en cas d'échec",
     TranslationKeys.RESTART_ON_ABNORMAL_KEY: "en cas d'anomalie",
-
     # Messages supplémentaires
     TranslationKeys.RESTART_LIMIT_CONFIGURATION: "🔄 Configuration des limites de redémarrage",
     TranslationKeys.MAX_RESTARTS_IN_INTERVAL: "Nombre maximum de redémarrages en 5 minutes :",
     TranslationKeys.ENTER_NUMBER_DEFAULT: "Entrez un nombre (défaut: {default})",
     TranslationKeys.RESTART_DELAY_BETWEEN_ATTEMPTS: "Délai entre les tentatives de redémarrage (en secondes) :",
     TranslationKeys.ENTER_SECONDS_DEFAULT: "Entrez un nombre de secondes (défaut: {default})",
-
     # Options de redémarrage
     TranslationKeys.RESTART_NO: "Ne pas redémarrer",
     TranslationKeys.RESTART_NO_DESCRIPTION: "Le service ne redémarre jamais automatiquement",
@@ -597,24 +577,20 @@ cli_translations_fr = {
     TranslationKeys.RESTART_ON_FAILURE_DESCRIPTION: "Le service redémarre uniquement en cas d'échec",
     TranslationKeys.RESTART_ON_ABNORMAL: "Redémarrer sur anomalie",
     TranslationKeys.RESTART_ON_ABNORMAL_DESCRIPTION: "Le service redémarre en cas d'arrêt anormal",
-
     # Détails des options de redémarrage
     TranslationKeys.RESTART_NO_DETAIL: "Le service ne redémarre jamais automatiquement.",
     TranslationKeys.RESTART_ALWAYS_DETAIL: "Le service redémarre toujours automatiquement.",
     TranslationKeys.RESTART_ON_FAILURE_DETAIL: "Le service redémarre uniquement en cas d'échec.",
     TranslationKeys.RESTART_ON_ABNORMAL_DETAIL: "Le service redémarre en cas d'arrêt anormal.",
-
     # Configuration du redémarrage
     TranslationKeys.RESTART_CONFIGURATION: "Configuration du redémarrage",
     TranslationKeys.RESTART_CONFIGURATION_TITLE: "🔄 Restart Options Configuration",
     TranslationKeys.RESTART_CONFIGURATION_DESCRIPTION: "Configurez comment le service doit se comporter en cas d'arrêt",
-
     # Configuration des redémarrages
     TranslationKeys.RESTART_POLICY_ABNORMAL: "en cas d'anomalie - Redémarrer sur arrêt anormal",
     TranslationKeys.RESTART_LIMITS_CONFIG: "🔄 Configuration des limites de redémarrage",
     TranslationKeys.MAX_RESTARTS_IN_INTERVAL: "Nombre maximum de redémarrages en 5 minutes :",
     TranslationKeys.ENTER_NUMBER_DEFAULT: "Entrez un nombre (défaut: {default})",
-
     # Politiques de redémarrage
     TranslationKeys.RESTART_POLICY_NO: "Ne pas redémarrer",
     TranslationKeys.RESTART_POLICY_ALWAYS: "Toujours redémarrer",
@@ -622,7 +598,6 @@ cli_translations_fr = {
     TranslationKeys.RESTART_POLICY_ON_ABNORMAL: "Redémarrer en cas d'anomalie",
     TranslationKeys.RESTART_POLICY_ON_ABORT: "Redémarrer en cas d'arrêt",
     TranslationKeys.RESTART_POLICY_ON_WATCHDOG: "Redémarrer sur watchdog",
-
     # Options d'édition
     TranslationKeys.EDIT_USER: "👤 Utilisateur",
     TranslationKeys.EDIT_GROUP: "👥 Groupe",
@@ -633,7 +608,6 @@ cli_translations_fr = {
     TranslationKeys.EDIT_RESTART_POLICY: "🔄 Politique de redémarrage",
     TranslationKeys.EDIT_RESTART_DELAY: "⏱️  Délai de redémarrage",
     TranslationKeys.EDIT_MAX_RESTARTS: "🔄 Nombre maximum de redémarrages",
-
     # Ajouter ces traductions françaises
     TranslationKeys.EDIT_SECTION_TITLE: "Quelle section voulez-vous modifier ?",
     TranslationKeys.EDIT_SECTION_UNIT: "📋 Section [Unit] - Description et dépendances",
@@ -655,7 +629,6 @@ cli_translations_fr = {
     TranslationKeys.EDIT_WANTED_BY_PROMPT: "Cibles qui démarrent ce service (ex: multi-user.target) :",
     TranslationKeys.EDIT_REQUIRED_BY_PROMPT: "Services qui requièrent ce service :",
     TranslationKeys.EDIT_ALSO_PROMPT: "Services à installer en même temps :",
-
     # Suppression de service
     TranslationKeys.CONFIRM_DELETE_SERVICE: "⚠️  Êtes-vous sûr de vouloir supprimer {name} ?",
     TranslationKeys.STOPPING_SERVICE: "🛑 Arrêt du service {name}...",
@@ -678,7 +651,6 @@ cli_translations_en = {
     TranslationKeys.RESTART_POLICY_ALWAYS: "Always restart",
     TranslationKeys.RESTART_POLICY_ON_FAILURE: "Restart on failure",
     TranslationKeys.RESTART_POLICY_ON_ABNORMAL: "Restart on abnormal",
-    
     # Messages de base en anglais
     TranslationKeys.WELCOME: "Welcome to SystemdManager",
     TranslationKeys.MAIN_MENU: "Main menu",
@@ -696,13 +668,11 @@ cli_translations_en = {
     TranslationKeys.MAX_RESTARTS: "🔄 Maximum number of restarts",
     TranslationKeys.CONFIGURE_FINAL_SERVICE: "🔧 Final service configuration",
     TranslationKeys.MAX_RESTARTS_SET: "✅ Maximum number of restarts set to {restarts}",
-
     # Configuration des redémarrages en anglais
     TranslationKeys.RESTART_POLICY_ABNORMAL: "on abnormal - Restart on abnormal exit",
     TranslationKeys.RESTART_LIMITS_CONFIG: "🔄 Restart Limits Configuration",
     TranslationKeys.MAX_RESTARTS_IN_INTERVAL: "Maximum number of restarts in 5 minutes:",
     TranslationKeys.ENTER_NUMBER_DEFAULT: "Enter a number (default: {default})",
-
     # Politiques de redémarrage en anglais
     TranslationKeys.RESTART_POLICY_NO: "No restart",
     TranslationKeys.RESTART_POLICY_ALWAYS: "Always restart",
@@ -710,7 +680,6 @@ cli_translations_en = {
     TranslationKeys.RESTART_POLICY_ON_ABNORMAL: "Restart on abnormal",
     TranslationKeys.RESTART_POLICY_ON_ABORT: "Restart on abort",
     TranslationKeys.RESTART_POLICY_ON_WATCHDOG: "Restart on watchdog",
-
     # Options d'édition en anglais
     TranslationKeys.EDIT_USER: "👤 User",
     TranslationKeys.EDIT_GROUP: "👥 Group",
@@ -721,18 +690,15 @@ cli_translations_en = {
     TranslationKeys.EDIT_RESTART_POLICY: "🔄 Restart policy",
     TranslationKeys.EDIT_RESTART_DELAY: "⏱️  Restart delay",
     TranslationKeys.EDIT_MAX_RESTARTS: "🔄 Maximum number of restarts",
-
     # Configuration du redémarrage en anglais
     TranslationKeys.RESTART_CONFIGURATION: "Restart Configuration",
     TranslationKeys.RESTART_CONFIGURATION_TITLE: "🔄 Restart Options Configuration",
     TranslationKeys.RESTART_CONFIGURATION_DESCRIPTION: "Configure how the service should behave when it stops",
-
     # Détails des options de redémarrage en anglais
     TranslationKeys.RESTART_NO_DETAIL: "The service never restarts automatically.",
     TranslationKeys.RESTART_ALWAYS_DETAIL: "The service always restarts automatically.",
     TranslationKeys.RESTART_ON_FAILURE_DETAIL: "The service restarts only on failure.",
     TranslationKeys.RESTART_ON_ABNORMAL_DETAIL: "The service restarts on abnormal exit.",
-
     # Ajouter ces traductions anglaises
     TranslationKeys.EDIT_SECTION_TITLE: "Which section do you want to modify?",
     TranslationKeys.EDIT_SECTION_UNIT: "📋 [Unit] Section - Description and dependencies",
@@ -754,7 +720,6 @@ cli_translations_en = {
     TranslationKeys.EDIT_WANTED_BY_PROMPT: "Targets that start this service (e.g., multi-user.target):",
     TranslationKeys.EDIT_REQUIRED_BY_PROMPT: "Services that require this service:",
     TranslationKeys.EDIT_ALSO_PROMPT: "Services to install alongside:",
-
     # Service deletion
     TranslationKeys.CONFIRM_DELETE_SERVICE: "⚠️  Are you sure you want to delete {name}?",
     TranslationKeys.STOPPING_SERVICE: "🛑 Stopping service {name}...",
@@ -763,6 +728,7 @@ cli_translations_en = {
     TranslationKeys.CONFIG_FILE_DELETED: "🗑️  Configuration file deleted: {path}",
     TranslationKeys.SERVICE_DELETED: "✅ Service {name} completely deleted",
 }
+
 
 class CLITranslations:
     def __init__(self):
@@ -776,10 +742,14 @@ class CLITranslations:
         """Charge la configuration de langue"""
         if os.path.exists(self.config_file):
             try:
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, "r") as f:
                     config = json.load(f)
                     self.current_locale = config.get("language", "fr")
-                    self.translations = cli_translations_en if self.current_locale == "en" else cli_translations_fr
+                    self.translations = (
+                        cli_translations_en
+                        if self.current_locale == "en"
+                        else cli_translations_fr
+                    )
             except (OSError, json.JSONDecodeError):
                 self.current_locale = "fr"
 
@@ -787,19 +757,22 @@ class CLITranslations:
         """Sauvegarde la configuration de langue"""
         if not os.path.exists(self.config_dir):
             os.makedirs(self.config_dir)
-        with open(self.config_file, 'w') as f:
+        with open(self.config_file, "w") as f:
             json.dump({"language": self.current_locale}, f)
 
     def set_locale(self, locale):
         """Définit la langue courante"""
         if locale in ["fr", "en"]:
             self.current_locale = locale
-            self.translations = cli_translations_en if locale == "en" else cli_translations_fr
+            self.translations = (
+                cli_translations_en if locale == "en" else cli_translations_fr
+            )
             self.save_config()
 
     def get_text(self, key):
         """Obtient le texte traduit pour une clé donnée"""
         return self.translations.get(key, key)
+
 
 # Instance globale pour l'utilisation dans l'application
 cli_translations = CLITranslations()

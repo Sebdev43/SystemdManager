@@ -20,9 +20,9 @@ References:
     * systemd.service(5), ``Type=simple``.
 """
 
-from typing import List, Optional
 import os
 import re
+from typing import List, Optional
 
 SCREEN_BIN = "/usr/bin/screen"
 

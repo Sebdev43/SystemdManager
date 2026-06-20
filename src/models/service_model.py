@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-from typing import List, Optional
 import json
-import sys
 import os
 import re
+import sys
+from dataclasses import dataclass
+from typing import List
 
 from src.models.screen import (
     is_screen_command,
@@ -30,8 +30,7 @@ def _assert_single_line(value: str) -> str:
     """
     if "\n" in value or "\r" in value:
         raise ValueError(
-            "Valeur de directive systemd invalide (saut de ligne interdit): "
-            f"{value!r}"
+            f"Valeur de directive systemd invalide (saut de ligne interdit): {value!r}"
         )
     return value
 
@@ -39,74 +38,81 @@ def _assert_single_line(value: str) -> str:
 @dataclass
 class UnitSection:
     """[Unit] Section - General service information"""
+
     description: str = ""  # Simple service description
     documentation: str = ""  # Documentation links
-    
+
     # Service startup
     after: List[str] = None  # Services that must start BEFORE this service
     before: List[str] = None  # Services that must start AFTER this service
     requires: List[str] = None  # REQUIRED services for operation
     wants: List[str] = None  # RECOMMENDED but not required services
-    
+
     # Error handling behavior
     on_failure: str = "none"  # Action on failure (none, reboot, restart)
     start_limit_burst: int = 5  # Number of allowed restarts
     start_limit_interval: int = 10  # Period to count restarts (in seconds)
 
+
 @dataclass
 class ServiceSection:
     """[Service] Section - How the service should operate"""
+
     # Service type
     type: str = "simple"  # How systemd handles the service
-    
+
     # User and permissions
     user: str = ""
     group: str = ""
-    
+
     # Execution commands
     working_directory: str = ""
     environment: dict = None
     exec_start: str = ""
     exec_stop: str = ""
     exec_reload: str = ""
-    
+
     # Restart behavior
     restart: str = "no"
     restart_sec: int = 0
-    
+
     # Security
     nice: int = 0
     memory_limit: str = ""
     cpu_quota: int = 100
-    
+
     # Screen support
     remain_after_exit: bool = True
+
 
 @dataclass
 class InstallSection:
     """[Install] Section - When and how the service should be activated"""
-    wanted_by: List[str] = None  
-    
-    required_by: List[str] = None  
-    also: List[str] = None  
+
+    wanted_by: List[str] = None
+
+    required_by: List[str] = None
+    also: List[str] = None
+
 
 class ServiceModel:
     """
     Complete systemd service model
-    
+
     This class represents a systemd service configuration with all its sections
     and provides methods to convert between systemd and JSON formats.
-    
+
     Attributes:
         name (str): Service name
         unit (UnitSection): Unit section configuration
         service (ServiceSection): Service section configuration
         install (InstallSection): Install section configuration
     """
+
     def __init__(self, name: str):
         """
         Initialize a new service model
-        
+
         Args:
             name (str): Name of the service
         """
@@ -114,11 +120,11 @@ class ServiceModel:
         self.unit = UnitSection()
         self.service = ServiceSection()
         self.install = InstallSection()
-        
+
     def to_systemd_file(self) -> str:
         """
         Convert the model to systemd file format
-        
+
         Returns:
             str: Service configuration in systemd format
         """
@@ -135,9 +141,7 @@ class ServiceModel:
             # StartLimitIntervalSec is the current name (renamed from the
             # legacy alias StartLimitInterval in systemd v229); StartLimit*
             # directives belong in [Unit]. A plain integer means seconds.
-            content += (
-                f"StartLimitIntervalSec={int(self.unit.start_limit_interval)}\n"
-            )
+            content += f"StartLimitIntervalSec={int(self.unit.start_limit_interval)}\n"
 
         content += "\n[Service]\n"
 
@@ -165,9 +169,7 @@ class ServiceModel:
                     content += f"ExecStart={command}\n"
                 else:
                     # Use absolute path for other commands
-                    full_path = os.path.join(
-                        self.service.working_directory, value
-                    )
+                    full_path = os.path.join(self.service.working_directory, value)
                     content += f"ExecStart={_assert_single_line(full_path)}\n"
             elif key == "type":
                 # Type for screen services is forced to simple above.
@@ -198,9 +200,7 @@ class ServiceModel:
 
         content += "\n[Install]\n"
         if self.install.wanted_by:
-            targets = " ".join(
-                _assert_single_line(t) for t in self.install.wanted_by
-            )
+            targets = " ".join(_assert_single_line(t) for t in self.install.wanted_by)
             content += f"WantedBy={targets}\n"
 
         return content
@@ -213,22 +213,22 @@ class ServiceModel:
             "name": self.name,  # Ajout du champ name
             "unit": self.unit.__dict__,
             "service": self.service.__dict__,
-            "install": self.install.__dict__
+            "install": self.install.__dict__,
         }
 
     @classmethod
-    def load_from_json(cls, filepath: str) -> 'ServiceModel':
+    def load_from_json(cls, filepath: str) -> "ServiceModel":
         """
         Load configuration from JSON file
-        
+
         Args:
             filepath (str): Path to the JSON configuration file
-            
+
         Returns:
             ServiceModel: Loaded service model instance
         """
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath, "r") as f:
                 data = json.load(f)
         except (OSError, ValueError) as e:
             # ValueError covers json.JSONDecodeError and UnicodeDecodeError
@@ -239,15 +239,14 @@ class ServiceModel:
 
         if not isinstance(data, dict):
             raise ValueError(
-                f"Configuration de service invalide dans {filepath}: "
-                "objet JSON attendu"
+                f"Configuration de service invalide dans {filepath}: objet JSON attendu"
             )
 
         # Prefer the stored service name, but only when it is a safe string;
         # otherwise fall back to the (filesystem-derived) file name, which is
         # the trusted source the loader used previously.
         fallback_name = os.path.splitext(os.path.basename(filepath))[0]
-        raw_name = data.get('name')
+        raw_name = data.get("name")
         if isinstance(raw_name, str) and raw_name:
             if not _VALID_NAME_RE.match(raw_name):
                 raise ValueError(
@@ -259,25 +258,25 @@ class ServiceModel:
         service = cls(service_name)
 
         # [Unit] section
-        unit_data = data.get('unit', {})
+        unit_data = data.get("unit", {})
         if isinstance(unit_data, dict):
             for key, value in unit_data.items():
                 if hasattr(service.unit, key):
                     setattr(service.unit, key, value)
 
         # [Service] section
-        service_data = data.get('service', {})
+        service_data = data.get("service", {})
         if isinstance(service_data, dict):
             for key, value in service_data.items():
                 # Backward-compat: StartLimit* used to live under [Service];
                 # systemd (and this model) keep them under [Unit].
-                if key in ('start_limit_interval', 'start_limit_burst'):
+                if key in ("start_limit_interval", "start_limit_burst"):
                     setattr(service.unit, key, value)
                 elif hasattr(service.service, key):
                     setattr(service.service, key, value)
 
         # [Install] section
-        install_data = data.get('install', {})
+        install_data = data.get("install", {})
         if isinstance(install_data, dict):
             for key, value in install_data.items():
                 if hasattr(service.install, key):
@@ -288,24 +287,24 @@ class ServiceModel:
     def handle_input(self, value: str, previous_step: callable = None):
         """
         Handle standard user input
-        
+
         Args:
             value (str): User input value
             previous_step (callable, optional): Callback for previous step
-            
+
         Returns:
             str: Processed input value
         """
-        if value.lower() == 'q':
+        if value.lower() == "q":
             sys.exit("Goodbye!")
-        elif value.lower() == 'b' and previous_step:
+        elif value.lower() == "b" and previous_step:
             previous_step()
         return value
 
     def save_to_json(self, filepath: str) -> None:
         """
         Sauvegarde la configuration du service dans un fichier JSON
-        
+
         Args:
             filepath (str): Chemin du fichier où sauvegarder la configuration
         """
@@ -317,7 +316,7 @@ class ServiceModel:
         try:
             if parent:
                 os.makedirs(parent, exist_ok=True)
-            with open(filepath, 'w') as f:
+            with open(filepath, "w") as f:
                 json.dump(data, f, indent=4)
         except OSError as e:
             raise ValueError(
