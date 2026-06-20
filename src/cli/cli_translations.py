@@ -427,8 +427,8 @@ cli_translations_fr = {
     TranslationKeys.WORKING_DIRECTORY: "Dossier de travail",
     TranslationKeys.EXECUTION_COMMAND: "Commande d'exécution",
     TranslationKeys.CONFIGURE_SERVICE_TYPE: "⚡ Configuration du type de service",
-    TranslationKeys.SIMPLE_TYPE: "simple - Le processus reste au premier plan",
-    TranslationKeys.FORKING_TYPE: "forking - Le processus se détache en arrière-plan (recommandé si vous utilisez screen)",
+    TranslationKeys.SIMPLE_TYPE: "simple - Le processus reste au premier plan (recommandé, y compris pour screen via -DmS)",
+    TranslationKeys.FORKING_TYPE: "forking - Le processus se détache en arrière-plan",
     TranslationKeys.ONESHOT_TYPE: "oneshot - S'exécute une fois et s'arrête",
     TranslationKeys.NOTIFY_TYPE: "notify - Comme simple mais notifie quand il est prêt",
 

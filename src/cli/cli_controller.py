@@ -5,6 +5,7 @@ import signal
 import questionary
 from typing import Optional, List
 from src.models.service_model import ServiceModel, UnitSection, ServiceSection, InstallSection
+from src.models.screen import build_screen_command, screen_session_name
 import subprocess
 from datetime import datetime
 from src.cli.cli_translations import cli_translations, TranslationKeys
@@ -344,7 +345,9 @@ class CLIController:
                 else:
                     print("⚠️  " + cli_translations.get_text("Le service est installé mais n'est pas actif"))
                     print("📜 " + cli_translations.get_text("Consultation des logs :"))
-                    os.system(f"journalctl -u {service.name} -n 50 --no-pager")
+                    subprocess.run(
+                        ["journalctl", "-u", service.name, "-n", "50", "--no-pager"]
+                    )
 
             return True
 
@@ -413,9 +416,11 @@ class CLIController:
             elif action == cli_translations.get_text(TranslationKeys.RESTART_SERVICE):
                 self.restart_service(service_name)
             elif action == cli_translations.get_text(TranslationKeys.VIEW_STATUS):
-                os.system(f"systemctl status {service_name}")
+                subprocess.run(["systemctl", "status", service_name, "--no-pager"])
             elif action == cli_translations.get_text(TranslationKeys.VIEW_LOGS):
-                os.system(f"journalctl -u {service_name} -n 50 --no-pager")
+                subprocess.run(
+                    ["journalctl", "-u", service_name, "-n", "50", "--no-pager"]
+                )
             elif action == cli_translations.get_text(TranslationKeys.EDIT_SERVICE_ACTION):
                 self.edit_service(service_name)
             elif action == cli_translations.get_text(TranslationKeys.DELETE_SERVICE_ACTION):
@@ -476,7 +481,7 @@ class CLIController:
         try:
             print(f"📥 " + cli_translations.get_text("Arrêt du service {name}...").format(name=service.name))
             
-            os.system(f"systemctl stop {service.name}")
+            subprocess.run(["systemctl", "stop", service.name])
             
             service_path = f"/etc/systemd/system/{service.name}.service"
             with open(service_path, 'w') as f:
@@ -485,8 +490,8 @@ class CLIController:
             json_path = os.path.join(self.services_dir, f"{service.name}.json")
             service.save_to_json(json_path)
             
-            os.system("systemctl daemon-reload")
-            os.system(f"systemctl restart {service.name}")
+            subprocess.run(["systemctl", "daemon-reload"])
+            subprocess.run(["systemctl", "restart", service.name])
             
             print(cli_translations.get_text(TranslationKeys.SERVICE_UPDATED_AND_RESTARTED).format(name=service.name))
             
@@ -506,10 +511,10 @@ class CLIController:
         ).ask():
             print(cli_translations.get_text(TranslationKeys.STOPPING_SERVICE).format(name=service_name))
             
-            os.system(f"systemctl stop {service_name}")
+            subprocess.run(["systemctl", "stop", service_name])
             
             print(cli_translations.get_text(TranslationKeys.DISABLING_SERVICE).format(name=service_name))
-            os.system(f"systemctl disable {service_name}")
+            subprocess.run(["systemctl", "disable", service_name])
             
             service_path = f"/etc/systemd/system/{service_name}.service"
             if os.path.exists(service_path):
@@ -521,7 +526,7 @@ class CLIController:
                 os.remove(json_path)
                 print(cli_translations.get_text(TranslationKeys.CONFIG_FILE_DELETED).format(path=json_path))
             
-            os.system("systemctl daemon-reload")
+            subprocess.run(["systemctl", "daemon-reload"])
             print(cli_translations.get_text(TranslationKeys.SERVICE_DELETED).format(name=service_name))
 
     def get_system_users(self) -> List[str]:
@@ -722,8 +727,10 @@ class CLIController:
                 ).ask()
                 
                 if use_screen:
-                    screen_name = service.name if service else "my_service"
-                    base_command = f"screen -dmS {screen_name} {base_command}"
+                    service_name = service.name if service else "my_service"
+                    base_command = build_screen_command(
+                        screen_session_name(service_name), base_command
+                    )
 
             return base_command
 
@@ -787,6 +794,18 @@ class CLIController:
         with open(log_path, 'a') as f:
             f.write(f"{datetime.now()}: Service configuration saved\n")
     
+    def _command_output(self, args: List[str]) -> str:
+        """Run a command without a shell and return its stripped output.
+
+        A no-shell replacement for subprocess.getoutput(): the service name is
+        passed as a list element so it can never be interpreted as shell syntax.
+        stderr is merged into stdout to match getoutput()'s behaviour.
+        """
+        result = subprocess.run(
+            args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        return result.stdout.strip()
+
     def get_service_status(self, service_name: str) -> dict:
         """
         Get comprehensive status information for a service.
@@ -798,9 +817,15 @@ class CLIController:
             dict: Dictionary containing service status information
         """
         status = {
-            'active': subprocess.getoutput(f"systemctl is-active {service_name}"),
-            'enabled': subprocess.getoutput(f"systemctl is-enabled {service_name}"),
-            'status': subprocess.getoutput(f"systemctl status {service_name}"),
+            'active': self._command_output(
+                ["systemctl", "is-active", service_name]
+            ),
+            'enabled': self._command_output(
+                ["systemctl", "is-enabled", service_name]
+            ),
+            'status': self._command_output(
+                ["systemctl", "status", service_name]
+            ),
             'config': os.path.join(self.services_dir, f"{service_name}.json"),
             'log': os.path.join(self.logs_dir, f"{service_name}.log")
         }
@@ -1027,7 +1052,9 @@ class CLIController:
             service_name (str): Name of the service to stop
         """
         try:
-            status = os.system(f"systemctl is-active --quiet {service_name}")
+            status = subprocess.run(
+                ["systemctl", "is-active", "--quiet", service_name]
+            ).returncode
             
             if status != 0:
                 print(f"⚠️  " + cli_translations.get_text("Le service {name} n'est pas actif").format(name=service_name))
@@ -1035,16 +1062,18 @@ class CLIController:
             
             print(f"📥 " + cli_translations.get_text("Arrêt du service {name}...").format(name=service_name))
             
-            if os.system(f"systemctl stop {service_name}") == 0:
+            if subprocess.run(["systemctl", "stop", service_name]).returncode == 0:
                 print(cli_translations.get_text(TranslationKeys.SERVICE_STOPPED_SUCCESSFULLY).format(name=service_name))
                 
                 print("\n📊 " + cli_translations.get_text("Statut actuel du service :"))
-                os.system(f"systemctl status {service_name}")
+                subprocess.run(["systemctl", "status", service_name, "--no-pager"])
             else:
                 print(cli_translations.get_text(TranslationKeys.ERROR_STOPPING_SERVICE) + f" {service_name}")
                 
                 print("\n📜 " + cli_translations.get_text("Derniers logs du service :"))
-                os.system(f"journalctl -u {service_name} -n 20 --no-pager")
+                subprocess.run(
+                    ["journalctl", "-u", service_name, "-n", "20", "--no-pager"]
+                )
             
         except Exception as e:
             print(cli_translations.get_text(TranslationKeys.UNEXPECTED_ERROR) + f" {e}")
@@ -1058,7 +1087,9 @@ class CLIController:
             service_name (str): Name of the service to start
         """
         try:
-            status = os.system(f"systemctl is-active --quiet {service_name}")
+            status = subprocess.run(
+                ["systemctl", "is-active", "--quiet", service_name]
+            ).returncode
             
             if status == 0:
                 print(f"⚠️  " + cli_translations.get_text("Le service {name} est déjà actif").format(name=service_name))
@@ -1066,19 +1097,23 @@ class CLIController:
             
             print(f"🚀 " + cli_translations.get_text("Démarrage du service {name}...").format(name=service_name))
             
-            if os.system(f"systemctl start {service_name}") == 0:
+            if subprocess.run(["systemctl", "start", service_name]).returncode == 0:
                 print(cli_translations.get_text(TranslationKeys.SERVICE_STARTED_SUCCESSFULLY).format(name=service_name))
                 
                 print("\n📊 " + cli_translations.get_text("Statut actuel du service :"))
-                os.system(f"systemctl status {service_name}")
+                subprocess.run(["systemctl", "status", service_name, "--no-pager"])
                 
                 print("\n📜 " + cli_translations.get_text("Logs de démarrage :"))
-                os.system(f"journalctl -u {service_name} -n 20 --no-pager")
+                subprocess.run(
+                    ["journalctl", "-u", service_name, "-n", "20", "--no-pager"]
+                )
             else:
                 print(cli_translations.get_text(TranslationKeys.ERROR_STARTING_SERVICE) + f" {service_name}")
                 
                 print("\n📜 " + cli_translations.get_text("Logs d'erreur :"))
-                os.system(f"journalctl -u {service_name} -n 50 --no-pager")
+                subprocess.run(
+                    ["journalctl", "-u", service_name, "-n", "50", "--no-pager"]
+                )
             
         except Exception as e:
             print(cli_translations.get_text(TranslationKeys.UNEXPECTED_ERROR) + f" {e}")
@@ -1094,22 +1129,26 @@ class CLIController:
         try:
             print(f"🔄 " + cli_translations.get_text("Redémarrage du service {name}...").format(name=service_name))
             
-            if os.system(f"systemctl restart {service_name}") == 0:
+            if subprocess.run(["systemctl", "restart", service_name]).returncode == 0:
                 print(cli_translations.get_text(TranslationKeys.SERVICE_RESTARTED_SUCCESSFULLY).format(name=service_name))
                 
                 print("\n📊 " + cli_translations.get_text("Statut actuel du service :"))
-                os.system(f"systemctl status {service_name}")
+                subprocess.run(["systemctl", "status", service_name, "--no-pager"])
                 
                 print("\n📜 " + cli_translations.get_text("Logs de redémarrage :"))
-                os.system(f"journalctl -u {service_name} -n 20 --no-pager")
+                subprocess.run(
+                    ["journalctl", "-u", service_name, "-n", "20", "--no-pager"]
+                )
             else:
                 print(cli_translations.get_text(TranslationKeys.ERROR_RESTARTING_SERVICE) + f" {service_name}")
                 
                 print("\n📜 " + cli_translations.get_text("Logs d'erreur détaillés :"))
-                os.system(f"journalctl -u {service_name} -n 50 --no-pager")
+                subprocess.run(
+                    ["journalctl", "-u", service_name, "-n", "50", "--no-pager"]
+                )
                 
                 print("\n🔍 " + cli_translations.get_text("État détaillé du service :"))
-                os.system(f"systemctl status {service_name} --no-pager")
+                subprocess.run(["systemctl", "status", service_name, "--no-pager"])
                 
         except Exception as e:
             print(cli_translations.get_text(TranslationKeys.UNEXPECTED_ERROR) + f" {e}")

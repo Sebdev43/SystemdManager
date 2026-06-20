@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from src.models.service_model import ServiceModel
+from src.models.screen import build_screen_command, screen_session_name
 from typing import List
 import os
 import subprocess
@@ -840,8 +841,9 @@ class ServiceCreationFrame(ctk.CTkFrame):
 
                 if self.use_screen_var.get():
                     service_name = self.service_name_var.get() or "service"
-                    screen_name = f"service_{service_name}"
-                    final_cmd = f"/usr/bin/screen -dmS {screen_name} {base_cmd}"
+                    final_cmd = build_screen_command(
+                        screen_session_name(service_name), base_cmd
+                    )
 
                 self.after(10, lambda: self.exec_start_var.set(final_cmd))
 

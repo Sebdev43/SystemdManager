@@ -80,22 +80,44 @@ def test_validate_service_name(cli_controller):
     assert cli_controller.validate_service_name("test@service") is False
     assert cli_controller.validate_service_name("test service") is False
 
-@patch('os.system')
-def test_service_operations(mock_system, cli_controller):
+@patch('subprocess.run')
+def test_service_operations(mock_run, cli_controller):
 
-    mock_system.side_effect = [1, 0]  
+    def result(code):
+        return MagicMock(returncode=code)
+
+    # start: is-active -> inactive (1) so it proceeds; start -> success (0).
+    mock_run.side_effect = [result(1), result(0), result(0), result(0)]
     cli_controller.start_service("test-service")
-    mock_system.assert_any_call("systemctl is-active --quiet test-service")
-    mock_system.assert_any_call("systemctl start test-service")
+    mock_run.assert_any_call(["systemctl", "is-active", "--quiet", "test-service"])
+    mock_run.assert_any_call(["systemctl", "start", "test-service"])
+    # status uses --no-pager so no interactive pager (Ctrl+C would otherwise
+    # reach the parent's SIGINT handler and exit the whole app).
+    mock_run.assert_any_call(
+        ["systemctl", "status", "test-service", "--no-pager"]
+    )
 
-    mock_system.reset_mock()
-    mock_system.side_effect = [0]  
+    mock_run.reset_mock()
+    # stop: is-active -> active (0) so it proceeds; stop -> success (0).
+    mock_run.side_effect = [result(0), result(0), result(0)]
     cli_controller.stop_service("test-service")
-    mock_system.assert_any_call("systemctl stop test-service")
+    mock_run.assert_any_call(["systemctl", "stop", "test-service"])
 
-    mock_system.reset_mock()
+    mock_run.reset_mock()
+    mock_run.side_effect = [result(0), result(0), result(0)]
     cli_controller.restart_service("test-service")
-    mock_system.assert_any_call("systemctl restart test-service")
+    mock_run.assert_any_call(["systemctl", "restart", "test-service"])
+
+
+@patch('subprocess.run')
+def test_get_service_status_uses_no_shell_list_args(mock_run, cli_controller):
+    mock_run.return_value = MagicMock(stdout="active\n")
+    status = cli_controller.get_service_status("test-service")
+    list_args = [call.args[0] for call in mock_run.call_args_list]
+    # No shell: the service name is passed as a separate list element.
+    assert ["systemctl", "is-active", "test-service"] in list_args
+    assert ["systemctl", "is-enabled", "test-service"] in list_args
+    assert status['active'] == "active"
 
 @patch('questionary.confirm')
 def test_handle_navigation_choice(mock_confirm, cli_controller):
