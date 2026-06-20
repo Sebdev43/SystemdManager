@@ -23,7 +23,7 @@ def print_banner():
     print(f"{CYAN}                 SYSTEMD MANAGER                  {RESET}")
     print(f"{ITALIC}{BOLD}          Service Management Made Easy           {RESET}")
     print("")
-    print(f" {BOLD}   SystemD Manager {RED}{ITALIC}(Linux v1.0.0) ⚡   {RESET}")
+    print(f" {BOLD}   SystemD Manager {RED}{ITALIC}(Linux v1.1.0) ⚡   {RESET}")
     print("")
     print(f"{GREEN}{ITALIC}              Developed by SEBDEV43              {RESET}")
     print("")
