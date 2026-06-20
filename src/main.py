@@ -36,13 +36,13 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-questionary.prompts.confirm.KEYBOARD_INTERRUPT_MSG = None
-questionary.prompts.select.KEYBOARD_INTERRUPT_MSG = None
-questionary.prompts.text.KEYBOARD_INTERRUPT_MSG = None
+questionary.prompts.confirm.KEYBOARD_INTERRUPT_MSG = None  # type: ignore[attr-defined]
+questionary.prompts.select.KEYBOARD_INTERRUPT_MSG = None  # type: ignore[attr-defined]
+questionary.prompts.text.KEYBOARD_INTERRUPT_MSG = None  # type: ignore[attr-defined]
 
-questionary.prompts.confirm.DEFAULT_KBI_MESSAGE = None
-questionary.prompts.select.DEFAULT_KBI_MESSAGE = None
-questionary.prompts.text.DEFAULT_KBI_MESSAGE = None
+questionary.prompts.confirm.DEFAULT_KBI_MESSAGE = None  # type: ignore[attr-defined]
+questionary.prompts.select.DEFAULT_KBI_MESSAGE = None  # type: ignore[attr-defined]
+questionary.prompts.text.DEFAULT_KBI_MESSAGE = None  # type: ignore[attr-defined]
 
 
 def main():

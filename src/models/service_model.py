@@ -3,7 +3,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from typing import List
+from typing import Any, Callable, List, Optional
 
 from src.models.screen import (
     is_screen_command,
@@ -43,10 +43,10 @@ class UnitSection:
     documentation: str = ""  # Documentation links
 
     # Service startup
-    after: List[str] = None  # Services that must start BEFORE this service
-    before: List[str] = None  # Services that must start AFTER this service
-    requires: List[str] = None  # REQUIRED services for operation
-    wants: List[str] = None  # RECOMMENDED but not required services
+    after: Optional[List[str]] = None  # Services that must start BEFORE
+    before: Optional[List[str]] = None  # Services that must start AFTER
+    requires: Optional[List[str]] = None  # REQUIRED services for operation
+    wants: Optional[List[str]] = None  # RECOMMENDED but not required
 
     # Error handling behavior
     on_failure: str = "none"  # Action on failure (none, reboot, restart)
@@ -67,7 +67,7 @@ class ServiceSection:
 
     # Execution commands
     working_directory: str = ""
-    environment: dict = None
+    environment: Optional[dict] = None
     exec_start: str = ""
     exec_stop: str = ""
     exec_reload: str = ""
@@ -89,10 +89,10 @@ class ServiceSection:
 class InstallSection:
     """[Install] Section - When and how the service should be activated"""
 
-    wanted_by: List[str] = None
+    wanted_by: Optional[List[str]] = None
 
-    required_by: List[str] = None
-    also: List[str] = None
+    required_by: Optional[List[str]] = None
+    also: Optional[List[str]] = None
 
 
 class ServiceModel:
@@ -120,6 +120,7 @@ class ServiceModel:
         self.unit = UnitSection()
         self.service = ServiceSection()
         self.install = InstallSection()
+        self.status: Any = None
 
     def to_systemd_file(self) -> str:
         """
@@ -285,7 +286,9 @@ class ServiceModel:
 
         return service
 
-    def handle_input(self, value: str, previous_step: callable = None):
+    def handle_input(
+        self, value: str, previous_step: Optional[Callable[..., Any]] = None
+    ):
         """
         Handle standard user input
 

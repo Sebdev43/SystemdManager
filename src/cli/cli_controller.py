@@ -835,7 +835,7 @@ class CLIController:
         except Exception:
             return False
 
-    def get_exec_command(self, service: ServiceModel = None):
+    def get_exec_command(self, service: Optional[ServiceModel] = None):
         """
         Guide user through execution command configuration.
         Allows selecting executable file or manual command entry.
@@ -872,6 +872,8 @@ class CLIController:
             if method == cli_translations.get_text(
                 TranslationKeys.SELECT_EXECUTABLE_FILE
             ):
+                if service is None:
+                    return None
                 working_dir = service.service.working_directory
                 executables = []
                 try:
@@ -936,7 +938,7 @@ class CLIController:
                     cli_translations.get_text(TranslationKeys.RUN_SERVICE_IN_SCREEN)
                 ).ask()
 
-                if use_screen:
+                if use_screen and base_command:
                     service_name = service.name if service else "my_service"
                     base_command = build_screen_command(
                         screen_session_name(service_name), base_command
@@ -1757,23 +1759,23 @@ class CLIController:
             elif choice == cli_translations.get_text(TranslationKeys.EDIT_WANTED_BY):
                 wanted_by = questionary.text(
                     cli_translations.get_text(TranslationKeys.EDIT_WANTED_BY_PROMPT),
-                    default=service.install.wanted_by,
+                    default=" ".join(service.install.wanted_by or []),
                 ).ask()
                 if wanted_by:
-                    service.install.wanted_by = wanted_by
+                    service.install.wanted_by = wanted_by.split()
 
             elif choice == cli_translations.get_text(TranslationKeys.EDIT_REQUIRED_BY):
                 required_by = questionary.text(
                     cli_translations.get_text(TranslationKeys.EDIT_REQUIRED_BY_PROMPT),
-                    default=service.install.required_by,
+                    default=" ".join(service.install.required_by or []),
                 ).ask()
                 if required_by:
-                    service.install.required_by = required_by
+                    service.install.required_by = required_by.split()
 
             elif choice == cli_translations.get_text(TranslationKeys.EDIT_ALSO):
                 also = questionary.text(
                     cli_translations.get_text(TranslationKeys.EDIT_ALSO_PROMPT),
-                    default=service.install.also,
+                    default=" ".join(service.install.also or []),
                 ).ask()
                 if also:
-                    service.install.also = also
+                    service.install.also = also.split()
