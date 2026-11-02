@@ -1,6 +1,6 @@
 # Changelog
 
-## [Non publié / Unreleased]
+## [1.2.0] - 2026-11-02
 
 ### Ajouté
 - **Mode non interactif** : `systemd-manager create|start|stop|restart|enable|disable|status|list|show|remove` (argparse). `create --dry-run` affiche l'unité sans privilèges ni appel à systemctl ; `--yes` est obligatoire pour écrire dans `/etc/systemd/system` ou supprimer ; `status`/`list --json` produisent un objet JSON unique ; codes de retour stables 0 (succès), 1 (usage), 2 (service introuvable), 3 (échec systemd), 4 (privilèges insuffisants). Sans argument, le menu interactif reste inchangé.
