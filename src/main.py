@@ -22,7 +22,6 @@ import sys
 import questionary
 
 from src.cli.cli_controller import CLIController
-from src.gui.app import SystemdManagerApp
 from src.i18n.translations import i18n
 from src.utils.banner import print_banner
 
@@ -47,6 +46,15 @@ questionary.prompts.text.DEFAULT_KBI_MESSAGE = None  # type: ignore[attr-defined
 
 def main():
 
+    if len(sys.argv) > 1:
+        # Non-interactive mode: no banner, no menu, default signal handling so
+        # nothing but the command's data reaches stdout.
+        from src.cli.cli_args import main as run_cli
+
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        sys.exit(run_cli(sys.argv[1:]))
+
     print_banner()
 
     interface = questionary.select(
@@ -62,6 +70,9 @@ def main():
         print("\n" + i18n.get_text("Au revoir ! 👋"))
         sys.exit(0)
     elif interface == i18n.get_text("🖥️  Interface graphique (GUI)"):
+        # Imported here so the command-line modes work without the GUI stack.
+        from src.gui.app import SystemdManagerApp
+
         app = SystemdManagerApp()
         app.mainloop()
     else:

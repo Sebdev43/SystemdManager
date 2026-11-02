@@ -4,10 +4,10 @@ from typing import List
 
 import customtkinter as ctk
 
-from src.gui.utils.service_validator import ServiceValidator
 from src.i18n.translations import _
 from src.models.screen import build_screen_command, screen_session_name
 from src.models.service_model import ServiceModel
+from src.utils.service_validator import ServiceValidator
 
 
 class ServiceCreationFrame(ctk.CTkFrame):

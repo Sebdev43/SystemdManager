@@ -36,11 +36,21 @@ class ServiceValidator:
     def __init__(self):
         self.errors = []
         self.warnings = []
+        self.check_host = True
 
-    def validate_service_config(self, config: Dict) -> ValidationResult:
+    def validate_service_config(
+        self, config: Dict, check_host: bool = True
+    ) -> ValidationResult:
+        """Validate ``config``.
 
+        With ``check_host=False`` the checks that depend on the local machine
+        (executable, working directory and user existence) are skipped, so a
+        unit meant for another host can still be validated; path syntax is
+        always checked.
+        """
         self.errors = []
         self.warnings = []
+        self.check_host = check_host
 
         self._validate_service_name(config.get("name", ""))
 
@@ -101,6 +111,9 @@ class ServiceValidator:
             self.errors.append("L'exécutable doit être spécifié avec un chemin absolu")
             return
 
+        if not self.check_host:
+            return
+
         if not os.path.exists(executable):
             self.errors.append(f"L'exécutable '{executable}' n'existe pas")
         elif not os.path.isfile(executable):
@@ -124,6 +137,9 @@ class ServiceValidator:
 
         if not os.path.isabs(directory):
             self.errors.append("Le répertoire de travail doit être un chemin absolu")
+            return
+
+        if not self.check_host:
             return
 
         if not os.path.exists(directory):
@@ -193,6 +209,9 @@ class ServiceValidator:
 
         if not user:
             self.errors.append("L'utilisateur est requis")
+            return
+
+        if not self.check_host:
             return
 
         try:

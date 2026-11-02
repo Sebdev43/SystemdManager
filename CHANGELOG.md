@@ -1,5 +1,29 @@
 # Changelog
 
+## [Non publié / Unreleased]
+
+### Ajouté
+- **Mode non interactif** : `systemd-manager create|start|stop|restart|enable|disable|status|list|show|remove` (argparse). `create --dry-run` affiche l'unité sans privilèges ni appel à systemctl ; `--yes` est obligatoire pour écrire dans `/etc/systemd/system` ou supprimer ; `status`/`list --json` produisent un objet JSON unique ; codes de retour stables 0 (succès), 1 (usage), 2 (service introuvable), 3 (échec systemd), 4 (privilèges insuffisants). Sans argument, le menu interactif reste inchangé.
+- Le fichier d'unité inclut désormais `Wants=` et `Environment=` quand ils sont renseignés.
+
+### Sécurité
+- Une valeur de directive se terminant par `\` est rejetée : elle collerait la directive suivante à la valeur.
+
+### Modifié
+- `ServiceValidator` déplacé dans `src/utils/` (partagé, importable sans la GUI) ; option `check_host` pour valider une unité destinée à un autre hôte.
+- La GUI n'est plus importée au démarrage du mode commande (utilisable sur un serveur sans affichage).
+
+### Added (EN)
+- **Non-interactive mode**: `systemd-manager create|start|stop|restart|enable|disable|status|list|show|remove` (argparse). `create --dry-run` prints the unit with no privileges and no systemctl call; `--yes` is required to write to `/etc/systemd/system` or to remove; `status`/`list --json` emit a single JSON object; stable exit codes 0 (success), 1 (usage), 2 (service not found), 3 (systemd failure), 4 (insufficient privileges). Without arguments the interactive menu is unchanged.
+- Unit files now include `Wants=` and `Environment=` when set.
+
+### Security (EN)
+- A directive value ending with `\` is rejected: it would splice the next directive into the value.
+
+### Changed (EN)
+- `ServiceValidator` moved to `src/utils/` (shared, importable without the GUI); `check_host` option to validate a unit meant for another host.
+- The GUI is no longer imported when running a command (usable on a headless server).
+
 ## [1.1.0] - 2026-06-20
 
 ### Fixed

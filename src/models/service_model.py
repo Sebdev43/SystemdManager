@@ -18,6 +18,32 @@ from src.models.screen import (
 # whitespace or shell metacharacters).
 _VALID_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]*$")
 
+# An environment variable name as accepted by systemd's Environment= directive.
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def is_valid_service_name(name: str) -> bool:
+    """Return ``True`` when ``name`` is safe to use in unit paths and commands."""
+    return bool(_VALID_NAME_RE.match(name))
+
+
+def _environment_assignment(key: str, value: str) -> str:
+    """Render one ``Environment=`` assignment, quoted per systemd.syntax(7).
+
+    The pair is double-quoted so spaces survive; backslashes and quotes are
+    escaped, and ``%`` is doubled because Environment= expands specifiers.
+    """
+    if not _ENV_KEY_RE.match(key):
+        raise ValueError(f"Nom de variable d'environnement invalide: {key!r}")
+    text = str(value)
+    if "\n" in text or "\r" in text:
+        raise ValueError(f"Valeur d'environnement invalide (saut de ligne): {key}")
+    # Inside double quotes a trailing backslash is escaped below, so it cannot
+    # continue the line; _assert_single_line would reject it needlessly.
+    pair = f"{key}={text}"
+    pair = pair.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+    return f'Environment="{pair}"'
+
 
 def _assert_single_line(value: str) -> str:
     """Return ``value`` unchanged, or raise ``ValueError`` on a line break.
@@ -27,10 +53,16 @@ def _assert_single_line(value: str) -> str:
     newline in a directive value would terminate the directive and let the
     remainder be parsed as further directives, i.e. directive injection into a
     root-owned unit file. Reject it rather than emit a corrupted/injected unit.
+    A trailing backslash is rejected too: it would splice the next directive
+    into this value.
     """
     if "\n" in value or "\r" in value:
         raise ValueError(
             f"Valeur de directive systemd invalide (saut de ligne interdit): {value!r}"
+        )
+    if value.endswith("\\"):
+        raise ValueError(
+            f"Valeur de directive systemd invalide (barre oblique inverse finale): {value!r}"
         )
     return value
 
@@ -136,6 +168,9 @@ class ServiceModel:
         if self.unit.after:
             after = " ".join(_assert_single_line(a) for a in self.unit.after)
             content += f"After={after}\n"
+        if self.unit.wants:
+            wants = " ".join(_assert_single_line(w) for w in self.unit.wants)
+            content += f"Wants={wants}\n"
         if self.unit.start_limit_burst:
             content += f"StartLimitBurst={int(self.unit.start_limit_burst)}\n"
         if self.unit.start_limit_interval:
@@ -186,6 +221,13 @@ class ServiceModel:
                 content += f"Group={_assert_single_line(value)}\n"
             elif key == "restart":
                 content += f"Restart={_assert_single_line(value)}\n"
+            elif key == "environment":
+                if not isinstance(value, dict):
+                    raise ValueError(
+                        f"Environnement invalide (objet CLE: VALEUR attendu): {value!r}"
+                    )
+                for env_key, env_value in value.items():
+                    content += _environment_assignment(env_key, env_value) + "\n"
             elif key == "restart_sec":
                 content += f"RestartSec={int(value)}\n"
             elif key == "remain_after_exit":

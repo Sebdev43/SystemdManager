@@ -4,9 +4,9 @@ from typing import List, Optional
 import customtkinter as ctk
 
 from src.gui.gui_controller import GUIController
-from src.gui.utils.service_validator import ServiceValidator
 from src.i18n.translations import _
 from src.models.service_model import ServiceModel
+from src.utils.service_validator import ServiceValidator
 
 
 class ServiceListFrame(ctk.CTkFrame):
