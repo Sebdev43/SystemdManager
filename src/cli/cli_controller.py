@@ -3,6 +3,7 @@ import signal
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 import questionary
@@ -12,6 +13,7 @@ from src.models.screen import build_screen_command, screen_session_name
 from src.models.service_model import (
     ServiceModel,
 )
+from src.utils.timer_units import remove_managed_timer, timer_action_units
 
 """
 CLI Controller for SystemD Service Manager
@@ -32,6 +34,11 @@ Features:
 - Screen session support
 - Sudo rights management
 """
+
+
+def _action_units(action: str, service_name: str, services_dir: str) -> List[str]:
+    config = Path(services_dir) / f"{service_name}.json"
+    return timer_action_units(action, service_name, config) or [service_name]
 
 
 class CLIController:
@@ -664,6 +671,15 @@ class CLIController:
                 name=service_name
             )
         ).ask():
+            try:
+                remove_managed_timer(
+                    service_name,
+                    Path(self.services_dir) / f"{service_name}.json",
+                )
+            except (subprocess.CalledProcessError, OSError) as e:
+                print(f"⚠️  {e}")
+                return
+
             print(
                 cli_translations.get_text(TranslationKeys.STOPPING_SERVICE).format(
                     name=service_name
@@ -949,49 +965,6 @@ class CLIController:
         except Exception as e:
             print(f"⚠️  Erreur lors de la configuration de la commande: {e}")
             return None
-
-    def configure_timer(self):
-        """
-        Configure systemd timer settings for the service.
-        Allows setting up delayed start, intervals, or specific times.
-
-        Returns:
-            Optional[str]: Timer configuration string or None if cancelled
-        """
-        use_timer = questionary.confirm(
-            cli_translations.get_text("Voulez-vous configurer un timer ?")
-        ).ask()
-
-        if not use_timer:
-            return None
-
-        timer_type = questionary.select(
-            cli_translations.get_text("Type de timer :"),
-            choices=[
-                cli_translations.get_text("Délai après le démarrage"),
-                cli_translations.get_text("Intervalle régulier"),
-                cli_translations.get_text("Heure spécifique"),
-            ],
-        ).ask()
-
-        if timer_type == cli_translations.get_text("Délai après le démarrage"):
-            seconds = questionary.text(
-                cli_translations.get_text("Délai en secondes :"),
-                validate=lambda text: text.isdigit(),
-            ).ask()
-            return f"OnBootSec={seconds}s"
-        elif timer_type == cli_translations.get_text("Intervalle régulier"):
-            seconds = questionary.text(
-                cli_translations.get_text("Intervalle en secondes :"),
-                validate=lambda text: text.isdigit(),
-            ).ask()
-            return f"OnUnitActiveSec={seconds}s"
-        else:
-            time = questionary.text(
-                cli_translations.get_text("Heure (format HH:MM) :"),
-                validate=lambda text: len(text.split(":")) == 2,
-            ).ask()
-            return f"OnCalendar=*-*-* {time}:00"
 
     def save_service_config(self, service: ServiceModel):
         """
@@ -1294,8 +1267,9 @@ class CLIController:
             service_name (str): Name of the service to stop
         """
         try:
+            units = _action_units("stop", service_name, self.services_dir)
             status = subprocess.run(
-                ["systemctl", "is-active", "--quiet", service_name]
+                ["systemctl", "is-active", "--quiet", units[0]]
             ).returncode
 
             if status != 0:
@@ -1314,7 +1288,7 @@ class CLIController:
                 )
             )
 
-            if subprocess.run(["systemctl", "stop", service_name]).returncode == 0:
+            if subprocess.run(["systemctl", "stop", *units]).returncode == 0:
                 print(
                     cli_translations.get_text(
                         TranslationKeys.SERVICE_STOPPED_SUCCESSFULLY
@@ -1346,8 +1320,9 @@ class CLIController:
             service_name (str): Name of the service to start
         """
         try:
+            units = _action_units("start", service_name, self.services_dir)
             status = subprocess.run(
-                ["systemctl", "is-active", "--quiet", service_name]
+                ["systemctl", "is-active", "--quiet", units[0]]
             ).returncode
 
             if status == 0:
@@ -1366,7 +1341,7 @@ class CLIController:
                 )
             )
 
-            if subprocess.run(["systemctl", "start", service_name]).returncode == 0:
+            if subprocess.run(["systemctl", "start", *units]).returncode == 0:
                 print(
                     cli_translations.get_text(
                         TranslationKeys.SERVICE_STARTED_SUCCESSFULLY
@@ -1410,7 +1385,8 @@ class CLIController:
                 )
             )
 
-            if subprocess.run(["systemctl", "restart", service_name]).returncode == 0:
+            units = _action_units("restart", service_name, self.services_dir)
+            if subprocess.run(["systemctl", "restart", *units]).returncode == 0:
                 print(
                     cli_translations.get_text(
                         TranslationKeys.SERVICE_RESTARTED_SUCCESSFULLY

@@ -199,20 +199,6 @@ class TranslationKeys:
     BACK = "BACK"
     QUIT = "QUIT"
 
-    # Messages pour le timer (si nécessaire)
-    CONFIGURE_TIMER = "CONFIGURE_TIMER"
-    TIMER_TYPE = "TIMER_TYPE"
-    DELAY_AFTER_BOOT = "DELAY_AFTER_BOOT"
-    REGULAR_INTERVAL = "REGULAR_INTERVAL"
-    SPECIFIC_TIME = "SPECIFIC_TIME"
-    DELAY_IN_SECONDS = "DELAY_IN_SECONDS"
-    INTERVAL_IN_SECONDS = "INTERVAL_IN_SECONDS"
-    TIME_IN_HH_MM = "TIME_IN_HH_MM"
-    INVALID_TIME_FORMAT = "INVALID_TIME_FORMAT"
-    ON_BOOT_SEC = "ON_BOOT_SEC"
-    ON_UNIT_ACTIVE_SEC = "ON_UNIT_ACTIVE_SEC"
-    ON_CALENDAR = "ON_CALENDAR"
-
     # Confirmation
     CONFIRMATION = "CONFIRMATION"
     ARE_YOU_SURE = "ARE_YOU_SURE"
@@ -539,19 +525,6 @@ cli_translations_fr = {
     # Instructions pour quitter ou revenir
     TranslationKeys.ENTER_B_TO_GO_BACK: "'b' pour revenir",
     TranslationKeys.ENTER_Q_TO_QUIT: "'q' pour quitter",
-    # Messages pour le timer (si nécessaire)
-    TranslationKeys.CONFIGURE_TIMER: "Voulez-vous configurer un timer ?",
-    TranslationKeys.TIMER_TYPE: "Type de timer :",
-    TranslationKeys.DELAY_AFTER_BOOT: "Délai après le démarrage",
-    TranslationKeys.REGULAR_INTERVAL: "Intervalle régulier",
-    TranslationKeys.SPECIFIC_TIME: "Heure spécifique",
-    TranslationKeys.DELAY_IN_SECONDS: "Délai en secondes :",
-    TranslationKeys.INTERVAL_IN_SECONDS: "Intervalle en secondes :",
-    TranslationKeys.TIME_IN_HH_MM: "Heure (format HH:MM) :",
-    TranslationKeys.INVALID_TIME_FORMAT: "Format de temps invalide.",
-    TranslationKeys.ON_BOOT_SEC: "OnBootSec={seconds}s",
-    TranslationKeys.ON_UNIT_ACTIVE_SEC: "OnUnitActiveSec={seconds}s",
-    TranslationKeys.ON_CALENDAR: "OnCalendar=*-*-* {time}:00",
     # Confirmation
     TranslationKeys.CONFIRMATION: "Confirmation",
     TranslationKeys.ARE_YOU_SURE: "Êtes-vous sûr ?",

@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.3.0] - 2026-11-06
+
+### Ajouté
+- **Timers systemd** : `create --every 5min` (`OnBootSec=` + `OnUnitActiveSec=`) ou `create --calendar EXPR` (`OnCalendar=` + `Persistent=true`) installent un service `Type=oneshot` et son `.timer`. Seul le timer est activé ; `start`, `restart`, `enable`, `disable` agissent sur lui et `stop` arrête aussi une exécution en cours. `--screen`, `--restart always` et `--wanted-by` sont refusés avec un timer. `--timeout SPAN` limite la durée d'une exécution (1h par défaut), car un oneshot bloqué empêcherait sinon tout nouveau déclenchement. `--dry-run` et `show` affichent les deux fichiers, chacun précédé d'un en-tête.
+- `run NOM` exécute le service une fois, tout de suite, sans toucher au timer.
+- `status --json` et `list --json` ajoutent un champ `timer` : `null`, ou `unit`, `active_state`, `sub_state`, `unit_file_state`, `next_run`, `next_run_monotonic`, `last_run`.
+- `create --adopt` reprend aussi un `.timer` existant quand un timer est demandé, avec copie et restauration en cas d'échec. Un service actif est alors refusé : à arrêter d'abord.
+
+### Modifié
+- `remove`, l'interface graphique et le mode interactif suppriment le timer d'un service géré ; un timer écrit à la main reste intact et `remove` le signale.
+- Dans l'interface graphique et le mode interactif, démarrer, arrêter et redémarrer un service à timer pilotent son timer.
+
+### Supprimé
+- `configure_timer` et ses traductions : code mort, jamais appelé.
+
+### Added (EN)
+- **systemd timers**: `create --every 5min` (`OnBootSec=` + `OnUnitActiveSec=`) or `create --calendar EXPR` (`OnCalendar=` + `Persistent=true`) install a `Type=oneshot` service and its `.timer`. Only the timer is enabled; `start`, `restart`, `enable`, `disable` act on it and `stop` also stops a run in progress. `--screen`, `--restart always` and `--wanted-by` are refused with a timer. `--timeout SPAN` limits how long a run may take (1h by default), since a stuck oneshot would otherwise prevent any further firing. `--dry-run` and `show` print both files, each after a header.
+- `run NAME` runs the service once, right away, without touching the timer.
+- `status --json` and `list --json` add a `timer` field: `null`, or `unit`, `active_state`, `sub_state`, `unit_file_state`, `next_run`, `next_run_monotonic`, `last_run`.
+- `create --adopt` also takes over an existing `.timer` when a timer is requested, with a copy and a restore on failure. An active service is then refused: stop it first.
+
+### Changed (EN)
+- `remove`, the GUI and the interactive mode delete the timer of a managed service; a hand-written timer stays intact and `remove` says so.
+- In the GUI and the interactive mode, starting, stopping and restarting a timer-run service drive its timer.
+
+### Removed (EN)
+- `configure_timer` and its translations: dead code, never called.
+
 ## [1.2.1] - 2026-11-06
 
 ### Corrigé

@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import pwd
+import re
 import shutil
 import subprocess
 import sys
@@ -41,13 +42,32 @@ from src.models.screen import (
 )
 from src.models.service_model import ServiceModel, is_valid_service_name
 from src.utils.service_validator import ServiceValidator
+from src.utils.timer_units import (
+    SYSTEMD_UNIT_DIR,
+    remove_managed_timer,
+    timer_action_units,
+)
 
 PROG = "systemd-manager"
-SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")
 RESTART_CHOICES = ("no", "always", "on-failure")
 NETWORK_ONLINE = "network-online.target"
 # [Install] directives a generated unit cannot carry over.
 _UNPORTABLE_INSTALL = ("Also", "Alias", "RequiredBy", "DefaultInstance")
+DEFAULT_WANTED_BY = "multi-user.target"
+# A stuck oneshot stays "activating" and silently stops its timer from firing.
+DEFAULT_TIMER_TIMEOUT = "1h"
+ACTIVE_STATES = ("active", "activating", "reloading")
+# systemd.time(7): a bare number of seconds, or numbers each with their unit.
+_TIMESPAN_RE = re.compile(
+    r"\d+|(?:\d+ *(?:usec|us|msec|ms|seconds|second|sec|s|minutes|minute|min|m"
+    r"|hours|hour|hr|h|days|day|d|weeks|week|w|months|month|M|years|year|y) *)+",
+    re.ASCII,
+)
+# Characters of a calendar event; systemd-analyze checks the expression itself.
+_CALENDAR_RE = re.compile(r"[A-Za-z0-9*][A-Za-z0-9 ,:*./~+_-]*")
+_TIMER_LEFT = "warning: {path} is left as is, not managed by this tool"
+_INVALID_SPAN = "invalid time span (example: 5min): {value}"
+_INVALID_CALENDAR = "invalid calendar expression (example: hourly): {value}"
 
 # Properties read with `systemctl show`, the machine-readable interface.
 _PROPERTIES = (
@@ -62,6 +82,14 @@ _PROPERTIES = (
     "ActiveEnterTimestamp",
     "FragmentPath",
     "DropInPaths",
+)
+_TIMER_PROPERTIES = (
+    "ActiveState",
+    "SubState",
+    "UnitFileState",
+    "NextElapseUSecRealtime",
+    "NextElapseUSecMonotonic",
+    "LastTriggerUSec",
 )
 
 
@@ -151,6 +179,18 @@ def _env_pair(value: str) -> tuple[str, str]:
     return key, val
 
 
+def _timespan(value: str) -> str:
+    if not _TIMESPAN_RE.fullmatch(value) or not re.search(r"[1-9]", value):
+        raise argparse.ArgumentTypeError(_t(_INVALID_SPAN).format(value=value))
+    return value
+
+
+def _calendar(value: str) -> str:
+    if not _CALENDAR_RE.fullmatch(value):
+        raise argparse.ArgumentTypeError(_t(_INVALID_CALENDAR).format(value=value))
+    return value
+
+
 def _systemctl(*args: str) -> str:
     """Run systemctl without a shell; raise CliError(3) on failure."""
     try:
@@ -173,9 +213,11 @@ def _systemctl(*args: str) -> str:
     return result.stdout
 
 
-def _unit_properties(name: str) -> dict[str, str]:
+def _unit_properties(
+    name: str, suffix: str = "service", properties: Sequence[str] = _PROPERTIES
+) -> dict[str, str]:
     output = _systemctl(
-        "show", f"{name}.service", "--property=" + ",".join(_PROPERTIES)
+        "show", f"{name}.{suffix}", "--property=" + ",".join(properties)
     )
     props: dict[str, str] = {}
     for line in output.splitlines():
@@ -190,6 +232,25 @@ def _int_or_none(value: str | None) -> int | None:
         return int(value) if value is not None else None
     except ValueError:
         return None
+
+
+def _timer_record(name: str, ctx: Context) -> dict[str, Any] | None:
+    if not (ctx.unit_dir / f"{name}.timer").exists():
+        return None
+    props = _unit_properties(name, "timer", _TIMER_PROPERTIES)
+    monotonic = props.get("NextElapseUSecMonotonic")
+    return {
+        "unit": f"{name}.timer",
+        "active_state": props.get("ActiveState") or "unknown",
+        "sub_state": props.get("SubState") or "unknown",
+        "unit_file_state": props.get("UnitFileState") or None,
+        "next_run": props.get("NextElapseUSecRealtime") or None,
+        # Time since boot, set instead of next_run for --every timers.
+        "next_run_monotonic": (
+            monotonic if monotonic not in (None, "", "0", "infinity") else None
+        ),
+        "last_run": props.get("LastTriggerUSec") or None,
+    }
 
 
 def _status_record(name: str, ctx: Context) -> dict[str, Any]:
@@ -208,6 +269,7 @@ def _status_record(name: str, ctx: Context) -> dict[str, Any]:
         "exec_main_status": _int_or_none(props.get("ExecMainStatus")),
         "n_restarts": _int_or_none(props.get("NRestarts")),
         "active_since": props.get("ActiveEnterTimestamp") or None,
+        "timer": _timer_record(name, ctx),
     }
 
 
@@ -242,6 +304,56 @@ def _require_yes(args: argparse.Namespace) -> None:
         )
 
 
+def _check_timer_options(args: argparse.Namespace) -> None:
+    """Refuse options a timer-run oneshot cannot honour (systemd.service(5))."""
+    if not (args.every or args.calendar):
+        if args.timeout:
+            raise CliError(
+                ExitCode.USAGE,
+                "invalid_config",
+                _t("--timeout requires --every or --calendar"),
+            )
+        return
+    conflicts = [
+        option
+        for option, used in (
+            ("--screen", args.screen),
+            ("--restart always", args.restart == "always"),
+            ("--wanted-by", args.wanted_by),
+        )
+        if used
+    ]
+    if conflicts:
+        raise CliError(
+            ExitCode.USAGE,
+            "invalid_config",
+            _t("a timer cannot be combined with {options}").format(
+                options=", ".join(conflicts)
+            ),
+        )
+
+
+def _check_syntax(kind: str, value: str, message: str) -> None:
+    """Ask systemd itself; only reached on install, as a dry-run calls nothing."""
+    try:
+        subprocess.run(
+            ["systemd-analyze", kind, value],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as e:
+        raise CliError(
+            ExitCode.SYSTEMD_FAILURE,
+            "systemd_failure",
+            _t("systemd-analyze not found"),
+        ) from e
+    except subprocess.CalledProcessError as e:
+        raise CliError(
+            ExitCode.USAGE, "invalid_config", _t(message).format(value=value)
+        ) from e
+
+
 def _build_service(args: argparse.Namespace) -> ServiceModel:
     service = ServiceModel(args.name)
     service.unit.description = args.description or args.name
@@ -263,8 +375,26 @@ def _build_service(args: argparse.Namespace) -> ServiceModel:
     # RemainAfterExit=yes would keep a cleanly exited process "active" and stop
     # Restart= from relaunching it.
     service.service.remain_after_exit = False
-    service.install.wanted_by = [args.wanted_by]
+    service.timer.every = args.every or ""
+    service.timer.on_calendar = args.calendar or ""
+    if service.has_timer:
+        # The timer is what gets enabled; the service only runs when it fires.
+        service.service.type = "oneshot"
+        service.timer.timeout = args.timeout or DEFAULT_TIMER_TIMEOUT
+    else:
+        service.install.wanted_by = [args.wanted_by or DEFAULT_WANTED_BY]
     return service
+
+
+def _render_units(service: ServiceModel) -> str:
+    """The unit file, preceded by a header per file when there are two."""
+    unit_text = service.to_systemd_file()
+    if not service.has_timer:
+        return unit_text
+    return (
+        f"# {service.name}.service\n{unit_text}\n"
+        f"# {service.name}.timer\n{service.to_timer_file()}"
+    )
 
 
 def _unportable_install(unit_path: Path) -> list[str]:
@@ -286,30 +416,23 @@ def _unportable_install(unit_path: Path) -> list[str]:
     return found + ["WantedBy"] * (len(wanted_by) > 1)
 
 
-def _check_adoptable(
-    name: str, unit_path: Path, config: Path, props: dict[str, str]
-) -> None:
-    """Refuse anything but an unmanaged regular unit file in the unit directory."""
-    if config.is_file():
-        raise CliError(
-            ExitCode.USAGE,
-            "already_managed",
-            _t("service {name} is already managed; remove it first").format(name=name),
-        )
-    load_state = props.get("LoadState", "not-found")
-    if (
-        load_state == "not-found"
-        and not unit_path.exists()
-        and not unit_path.is_symlink()
-    ):
-        raise _not_found(name)
+def _unit_exists(unit_path: Path, props: dict[str, str]) -> bool:
+    return (
+        unit_path.exists()
+        or unit_path.is_symlink()
+        or props.get("LoadState", "not-found") != "not-found"
+    )
+
+
+def _check_replaceable(name: str, unit_path: Path, props: dict[str, str]) -> None:
+    """Refuse anything but a regular unit file in the unit directory."""
     fragment = props.get("FragmentPath")
     # A symlink would be written through (a masked unit points to /dev/null), and
     # a unit loaded from elsewhere (package, /run) is not the file replaced here.
     if (
         unit_path.is_symlink()
         or not unit_path.is_file()
-        or load_state == "masked"
+        or props.get("LoadState") == "masked"
         or (fragment and fragment != str(unit_path))
     ):
         raise CliError(
@@ -329,6 +452,20 @@ def _check_adoptable(
                 "remove them from the unit first"
             ).format(name=name, directives=", ".join(sorted(set(unportable)))),
         )
+
+
+def _check_adoptable(
+    name: str, unit_path: Path, config: Path, props: dict[str, str]
+) -> None:
+    if config.is_file():
+        raise CliError(
+            ExitCode.USAGE,
+            "already_managed",
+            _t("service {name} is already managed; remove it first").format(name=name),
+        )
+    if not _unit_exists(unit_path, props):
+        raise _not_found(name)
+    _check_replaceable(name, unit_path, props)
 
 
 def _backup_unit(unit_path: Path) -> Path:
@@ -352,39 +489,67 @@ def _replace_file(path: Path, text: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def _undo_adoption(unit_path: Path, backup: Path, config: Path, enable: bool) -> None:
-    """Hand the previous unit back after a failed install, as far as possible."""
-    tmp = unit_path.with_name(f".{unit_path.name}.tmp")
+@dataclass
+class _Adopted:
+    """A unit file about to be replaced, and what it takes to hand it back."""
+
+    path: Path
+    backup: Path | None
+    enabled: bool
+
+
+def _backup_adopted(path: Path, props: dict[str, str]) -> _Adopted:
+    if not path.exists():
+        return _Adopted(path, None, False)
+    backup = _backup_unit(path)
+    _err(_t("previous unit saved to {path}").format(path=backup))
+    return _Adopted(path, backup, props.get("UnitFileState") == "enabled")
+
+
+def _restore_file(backup: Path, path: Path) -> None:
+    tmp = path.with_name(f".{path.name}.tmp")
     try:
-        config.unlink(missing_ok=True)
         shutil.copy2(backup, tmp)
-        os.replace(tmp, unit_path)
-        _systemctl("daemon-reload")
-        if enable:
-            _systemctl("enable", unit_path.name)
-    except (OSError, CliError) as e:
-        _err(_t("warning: {message}").format(message=str(e)))
-    else:
-        _err(_t("previous unit restored"))
+        os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 
 
-def _require_unit_loads(name: str) -> None:
+def _undo_adoption(adopted: list[_Adopted], config: Path) -> None:
+    """Hand the previous units back after a failed install, as far as possible."""
+    try:
+        config.unlink(missing_ok=True)
+        for unit in adopted:
+            if unit.backup:
+                _restore_file(unit.backup, unit.path)
+            else:
+                unit.path.unlink(missing_ok=True)
+        _systemctl("daemon-reload")
+        for unit in adopted:
+            if unit.enabled:
+                _systemctl("enable", unit.path.name)
+    except (OSError, CliError) as e:
+        _err(_t("warning: {message}").format(message=str(e)))
+    else:
+        _err(_t("previous unit restored"))
+
+
+def _require_unit_loads(unit_name: str) -> None:
     """A unit can be enabled yet be rejected at start: check what systemd loaded."""
-    state = _unit_properties(name).get("LoadState")
+    name, _, suffix = unit_name.rpartition(".")
+    state = _unit_properties(name, suffix).get("LoadState")
     if state != "loaded":
         raise CliError(
             ExitCode.SYSTEMD_FAILURE,
             "invalid_unit",
             _t("systemd rejects the new unit of {name} ({state})").format(
-                name=name, state=state
+                name=unit_name, state=state
             ),
         )
 
 
 def _warn_adopted(name: str, props: dict[str, str]) -> None:
-    if props.get("ActiveState") in ("active", "activating", "reloading"):
+    if props.get("ActiveState") in ACTIVE_STATES:
         _err(
             _t(
                 "warning: {name} is still running its old configuration; restart it"
@@ -399,6 +564,7 @@ def _warn_adopted(name: str, props: dict[str, str]) -> None:
 
 
 def cmd_create(args: argparse.Namespace, ctx: Context) -> int:
+    _check_timer_options(args)
     check_host = not args.dry_run
     result = ServiceValidator().validate_service_config(
         {
@@ -425,25 +591,42 @@ def cmd_create(args: argparse.Namespace, ctx: Context) -> int:
 
     service = _build_service(args)
     try:
-        unit_text = service.to_systemd_file()
+        rendered = _render_units(service)
     except ValueError as e:
         raise CliError(ExitCode.USAGE, "invalid_config", _t(str(e))) from e
 
     if args.dry_run:
-        sys.stdout.write(unit_text)
+        sys.stdout.write(rendered)
         return ExitCode.OK
 
     _require_yes(args)
     _require_root()
+    if args.calendar:
+        _check_syntax("calendar", args.calendar, _INVALID_CALENDAR)
+    for span in (args.every, args.timeout):
+        if span:
+            _check_syntax("timespan", span, _INVALID_SPAN)
     unit_path = ctx.unit_dir / f"{args.name}.service"
+    timer_path = ctx.unit_dir / f"{args.name}.timer"
     config = ctx.services_dir / f"{args.name}.json"
     props = _unit_properties(args.name)
+    timer_props = _unit_properties(args.name, "timer") if service.has_timer else {}
     if args.adopt:
         _check_adoptable(args.name, unit_path, config, props)
-    elif (
-        unit_path.exists()
-        or unit_path.is_symlink()
-        or props.get("LoadState", "not-found") != "not-found"
+        if service.has_timer and props.get("ActiveState") in ACTIVE_STATES:
+            # A timer cannot start a unit that is already active: it would keep
+            # running its old configuration and every firing would be a no-op.
+            raise CliError(
+                ExitCode.USAGE,
+                "not_adoptable",
+                _t(
+                    "{name} is active and a timer could not run it; stop it first"
+                ).format(name=args.name),
+            )
+        if service.has_timer and _unit_exists(timer_path, timer_props):
+            _check_replaceable(f"{args.name}.timer", timer_path, timer_props)
+    elif _unit_exists(unit_path, props) or (
+        service.has_timer and _unit_exists(timer_path, timer_props)
     ):
         hint = (
             "a unit named {name} already exists; remove it first"
@@ -454,24 +637,30 @@ def cmd_create(args: argparse.Namespace, ctx: Context) -> int:
             ExitCode.USAGE, "already_exists", _t(hint).format(name=args.name)
         )
 
-    backup = _backup_unit(unit_path) if args.adopt else None
-    if backup:
-        _err(_t("previous unit saved to {path}").format(path=backup))
+    adopted: list[_Adopted] = []
+    if args.adopt:
+        adopted.append(_backup_adopted(unit_path, props))
+        if service.has_timer:
+            adopted.append(_backup_adopted(timer_path, timer_props))
+    written = [(unit_path, service.to_systemd_file())]
+    if service.has_timer:
+        written.append((timer_path, service.to_timer_file()))
     try:
         service.save_to_json(str(config))
-        if backup:
-            # While the old [Install] section is still there, so that its
-            # symlinks do not outlive it.
-            _systemctl("disable", f"{args.name}.service")
-        _replace_file(unit_path, unit_text)
+        for unit in adopted:
+            if unit.backup:
+                # While the old [Install] section is still there, so that its
+                # symlinks do not outlive it.
+                _systemctl("disable", unit.path.name)
+        for path, text in written:
+            _replace_file(path, text)
         _systemctl("daemon-reload")
-        if backup:
-            _require_unit_loads(args.name)
-        _systemctl("enable", f"{args.name}.service")
+        for unit in adopted:
+            _require_unit_loads(unit.path.name)
+        _systemctl("enable", written[-1][0].name)
     except (OSError, ValueError, CliError) as e:
-        if backup:
-            enabled = props.get("UnitFileState") == "enabled"
-            _undo_adoption(unit_path, backup, config, enabled)
+        if adopted:
+            _undo_adoption(adopted, config)
         if isinstance(e, CliError):
             raise
         # save_to_json wraps OSError in ValueError; keep the permission case.
@@ -482,14 +671,34 @@ def cmd_create(args: argparse.Namespace, ctx: Context) -> int:
         raise CliError(code, "write_failed", _t(str(e))) from e
     if args.adopt:
         _warn_adopted(args.name, props)
-    _err(_t("service {name} installed and enabled").format(name=args.name))
+    if not service.has_timer and timer_path.exists():
+        _err(_t(_TIMER_LEFT).format(path=timer_path))
+    if service.has_timer:
+        _err(
+            _t("timer of {name} installed and enabled; `start {name}` arms it").format(
+                name=args.name
+            )
+        )
+    else:
+        _err(_t("service {name} installed and enabled").format(name=args.name))
     return ExitCode.OK
 
 
 def cmd_action(args: argparse.Namespace, ctx: Context) -> int:
     _require_loaded(args.name)
     _require_root()
-    _systemctl(args.command, f"{args.name}.service")
+    config = ctx.services_dir / f"{args.name}.json"
+    units = timer_action_units(args.command, args.name, config, ctx.unit_dir)
+    _systemctl(args.command, *(units or [f"{args.name}.service"]))
+    _err(_t("{action}: {name} done").format(action=args.command, name=args.name))
+    return ExitCode.OK
+
+
+def cmd_run(args: argparse.Namespace, ctx: Context) -> int:
+    """Run the service now, without touching its timer; waits for a oneshot."""
+    _require_loaded(args.name)
+    _require_root()
+    _systemctl("start", f"{args.name}.service")
     _err(_t("{action}: {name} done").format(action=args.command, name=args.name))
     return ExitCode.OK
 
@@ -516,6 +725,12 @@ def cmd_status(args: argparse.Namespace, ctx: Context) -> int:
     else:
         for label, key in _STATUS_LABELS:
             print(f"{_t(label)}: {record[key]}")
+        timer = record["timer"]
+        if timer:
+            next_run = timer["next_run"] or timer["next_run_monotonic"]
+            print(f"{_t('Timer')}: {timer['active_state']}")
+            print(f"{_t('Next run')}: {next_run}")
+            print(f"{_t('Last run')}: {timer['last_run']}")
     return ExitCode.OK
 
 
@@ -550,10 +765,10 @@ def cmd_show(args: argparse.Namespace, ctx: Context) -> int:
     if not config.is_file():
         raise _not_found(args.name)
     try:
-        unit_text = ServiceModel.load_from_json(str(config)).to_systemd_file()
+        rendered = _render_units(ServiceModel.load_from_json(str(config)))
     except ValueError as e:
         raise CliError(ExitCode.USAGE, "invalid_config", _t(str(e))) from e
-    sys.stdout.write(unit_text)
+    sys.stdout.write(rendered)
     return ExitCode.OK
 
 
@@ -575,16 +790,32 @@ def cmd_remove(args: argparse.Namespace, ctx: Context) -> int:
         raise _not_found(args.name)
     _require_root()
     try:
+        # First, so that it cannot fire while the service is going away.
+        reload_needed = remove_managed_timer(args.name, config, ctx.unit_dir)
         if unit_path.exists():
             _systemctl("stop", f"{args.name}.service")
             _systemctl("disable", f"{args.name}.service")
             unit_path.unlink()
+            reload_needed = True
+        if reload_needed:
             _systemctl("daemon-reload")
         config.unlink()
+    except subprocess.CalledProcessError as e:
+        raise CliError(
+            ExitCode.SYSTEMD_FAILURE,
+            "systemd_failure",
+            _t("systemctl {args} failed: {detail}").format(
+                args=" ".join(e.cmd[1:]),
+                detail=(e.stderr or "").strip() or f"exit {e.returncode}",
+            ),
+        ) from e
     except PermissionError as e:
         raise CliError(ExitCode.PERMISSION, "permission_denied", str(e)) from e
     except OSError as e:
         raise CliError(ExitCode.SYSTEMD_FAILURE, "remove_failed", str(e)) from e
+    timer_path = ctx.unit_dir / f"{args.name}.timer"
+    if timer_path.exists():
+        _err(_t(_TIMER_LEFT).format(path=timer_path))
     _err(_t("service {name} removed").format(name=args.name))
     return ExitCode.OK
 
@@ -628,7 +859,32 @@ def build_parser() -> argparse.ArgumentParser:
         type=_literal,
         help=_t("ordering dependency (repeatable)"),
     )
-    create.add_argument("--wanted-by", type=_literal, default="multi-user.target")
+    create.add_argument(
+        "--wanted-by",
+        type=_literal,
+        help=_t("defaults to {target}").format(target=DEFAULT_WANTED_BY),
+    )
+    schedule = create.add_mutually_exclusive_group()
+    schedule.add_argument(
+        "--every",
+        type=_timespan,
+        metavar="SPAN",
+        help=_t("run periodically through a timer (example: 5min)"),
+    )
+    schedule.add_argument(
+        "--calendar",
+        type=_calendar,
+        metavar="EXPR",
+        help=_t("run on a schedule through a timer (example: hourly)"),
+    )
+    create.add_argument(
+        "--timeout",
+        type=_timespan,
+        metavar="SPAN",
+        help=_t("kill a timer-run service after SPAN (default: {span})").format(
+            span=DEFAULT_TIMER_TIMEOUT
+        ),
+    )
     create.add_argument(
         "--env",
         action="append",
@@ -656,6 +912,10 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(action, help=_t("systemctl {action}").format(action=action))
         p.add_argument("name", type=_service_name)
         p.set_defaults(handler=cmd_action)
+
+    run = sub.add_parser("run", help=_t("run the service once, now"))
+    run.add_argument("name", type=_service_name)
+    run.set_defaults(handler=cmd_run)
 
     status = sub.add_parser("status", help=_t("show the state of a service"))
     status.add_argument("name", type=_service_name)

@@ -1,11 +1,13 @@
 import json
 import os
 import subprocess
+from pathlib import Path
 from typing import List, Optional
 
 import customtkinter
 
 from src.models.service_model import ServiceModel
+from src.utils.timer_units import remove_managed_timer, timer_action_units
 
 
 class GUIController:
@@ -110,11 +112,18 @@ class GUIController:
         except subprocess.CalledProcessError:
             return {"active": "unknown", "sub": "unknown", "load": "unknown"}
 
+    def _action_units(self, action: str, service_name: str) -> List[str]:
+        config = Path(self.services_dir) / f"{service_name}.json"
+        return timer_action_units(action, service_name, config) or [
+            f"{service_name}.service"
+        ]
+
     def start_service(self, service_name: str) -> bool:
 
         try:
             subprocess.run(
-                ["systemctl", "start", f"{service_name}.service"], check=True
+                ["systemctl", "start", *self._action_units("start", service_name)],
+                check=True,
             )
             return True
         except subprocess.CalledProcessError:
@@ -123,7 +132,10 @@ class GUIController:
     def stop_service(self, service_name: str) -> bool:
 
         try:
-            subprocess.run(["systemctl", "stop", f"{service_name}.service"], check=True)
+            subprocess.run(
+                ["systemctl", "stop", *self._action_units("stop", service_name)],
+                check=True,
+            )
             return True
         except subprocess.CalledProcessError:
             return False
@@ -132,7 +144,8 @@ class GUIController:
 
         try:
             subprocess.run(
-                ["systemctl", "restart", f"{service_name}.service"], check=True
+                ["systemctl", "restart", *self._action_units("restart", service_name)],
+                check=True,
             )
             return True
         except subprocess.CalledProcessError:
@@ -185,6 +198,8 @@ class GUIController:
                     service.service.__dict__.update(service_data["service"])
                 if "install" in service_data:
                     service.install.__dict__.update(service_data["install"])
+                if "timer" in service_data:
+                    service.timer.__dict__.update(service_data["timer"])
 
             status = self.get_service_status(service_name)
             service.status = status
@@ -241,6 +256,11 @@ class GUIController:
             Exception: If any step of the deletion process fails
         """
         try:
+            remove_managed_timer(
+                service_name,
+                Path(self.services_dir) / f"{service_name}.json",
+            )
+
             subprocess.run(["systemctl", "stop", service_name], check=True)
 
             subprocess.run(["systemctl", "disable", service_name], check=True)

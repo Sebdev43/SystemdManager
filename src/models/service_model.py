@@ -127,6 +127,15 @@ class InstallSection:
     also: Optional[List[str]] = None
 
 
+@dataclass
+class TimerSection:
+    """[Timer] Section of the companion .timer unit (empty: no timer)"""
+
+    on_calendar: str = ""  # OnCalendar= expression, caught up after downtime
+    every: str = ""  # Time span between runs, counted from boot then each run
+    timeout: str = ""  # TimeoutStartSec= of the service: a oneshot has none
+
+
 class ServiceModel:
     """
     Complete systemd service model
@@ -139,6 +148,7 @@ class ServiceModel:
         unit (UnitSection): Unit section configuration
         service (ServiceSection): Service section configuration
         install (InstallSection): Install section configuration
+        timer (TimerSection): Companion timer configuration
     """
 
     def __init__(self, name: str):
@@ -152,7 +162,31 @@ class ServiceModel:
         self.unit = UnitSection()
         self.service = ServiceSection()
         self.install = InstallSection()
+        self.timer = TimerSection()
         self.status: Any = None
+
+    @property
+    def has_timer(self) -> bool:
+        """Whether the service is run by a companion .timer unit."""
+        return bool(self.timer.on_calendar or self.timer.every)
+
+    def to_timer_file(self) -> str:
+        """Render the companion .timer unit."""
+        description = _assert_single_line(self.unit.description or self.name)
+        content = f"[Unit]\nDescription=Timer for {description}\n\n[Timer]\n"
+        if self.timer.on_calendar:
+            content += (
+                f"OnCalendar={_assert_single_line(str(self.timer.on_calendar))}\n"
+            )
+            # Run at startup when a scheduled time was missed during downtime.
+            content += "Persistent=true\n"
+        if self.timer.every:
+            every = _assert_single_line(str(self.timer.every))
+            # OnBootSec= gives the first run: OnUnitActiveSec= alone never fires
+            # until the service has run once.
+            content += f"OnBootSec={every}\nOnUnitActiveSec={every}\n"
+        content += "\n[Install]\nWantedBy=timers.target\n"
+        return content
 
     def to_systemd_file(self) -> str:
         """
@@ -237,6 +271,10 @@ class ServiceModel:
                     remain = _assert_single_line(str(value)).lower()
                     content += f"RemainAfterExit={remain}\n"
 
+        if self.has_timer and self.timer.timeout:
+            timeout = _assert_single_line(str(self.timer.timeout))
+            content += f"TimeoutStartSec={timeout}\n"
+
         # Clean shutdown for screen sessions (Arch Wiki canonical pattern).
         if screen_mode and session and not self.service.exec_stop:
             stop = _assert_single_line(screen_stop_command(session))
@@ -253,12 +291,15 @@ class ServiceModel:
         """
         Convertit le modèle en dictionnaire pour la sérialisation JSON
         """
-        return {
+        data = {
             "name": self.name,  # Ajout du champ name
             "unit": self.unit.__dict__,
             "service": self.service.__dict__,
             "install": self.install.__dict__,
         }
+        if self.has_timer:
+            data["timer"] = self.timer.__dict__
+        return data
 
     @classmethod
     def load_from_json(cls, filepath: str) -> "ServiceModel":
@@ -325,6 +366,13 @@ class ServiceModel:
             for key, value in install_data.items():
                 if hasattr(service.install, key):
                     setattr(service.install, key, value)
+
+        # [Timer] section
+        timer_data = data.get("timer", {})
+        if isinstance(timer_data, dict):
+            for key, value in timer_data.items():
+                if hasattr(service.timer, key):
+                    setattr(service.timer, key, value)
 
         return service
 

@@ -83,12 +83,14 @@ class FakeRun:
         missing: bool = False,
         fail_once: str | None = None,
         props_after_reload: dict[str, str] | None = None,
+        timer_props: dict[str, str] | None = None,
     ) -> None:
         self.props = LOADED if props is None else props
         self.fail_on = fail_on
         self.missing = missing
         self.fail_once = fail_once
         self.props_after_reload = props_after_reload
+        self.timer_props = timer_props  # until the next daemon-reload
         self.calls: list[list[str]] = []
 
     def __call__(self, cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
@@ -98,15 +100,22 @@ class FakeRun:
         self.calls.append(cmd)
         if self.missing:
             raise FileNotFoundError(cmd[0])
+        if cmd[0] == "systemd-analyze" and self.fail_on == "calendar":
+            raise subprocess.CalledProcessError(1, cmd, stderr="boom")
         if cmd[0] == "systemctl" and cmd[1] == self.fail_on:
             raise subprocess.CalledProcessError(1, cmd, stderr="boom")
         if cmd[0] == "systemctl" and cmd[1] == self.fail_once:
             self.fail_once = None
             raise subprocess.CalledProcessError(1, cmd, stderr="boom")
-        if cmd[:2] == ["systemctl", "daemon-reload"] and self.props_after_reload:
-            self.props, self.props_after_reload = self.props_after_reload, None
+        if cmd[:2] == ["systemctl", "daemon-reload"]:
+            self.timer_props = None
+            if self.props_after_reload:
+                self.props, self.props_after_reload = self.props_after_reload, None
         if cmd[:2] == ["systemctl", "show"]:
-            out = "".join(f"{k}={v}\n" for k, v in self.props.items())
+            props = self.props
+            if self.timer_props is not None and cmd[2].endswith(".timer"):
+                props = self.timer_props
+            out = "".join(f"{k}={v}\n" for k, v in props.items())
             return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
@@ -164,7 +173,7 @@ def test_create_defaults() -> None:
     assert args.restart_sec == 0
     assert args.after is None
     assert args.env is None
-    assert args.wanted_by == "multi-user.target"
+    assert args.wanted_by is None
     assert args.workdir is None and args.description is None
     assert not (args.screen or args.dry_run or args.yes)
 
@@ -411,6 +420,7 @@ def test_status_json_exact_shape(dirs: dict[str, Path], capsys) -> None:
         "exec_main_status": 0,
         "n_restarts": 3,
         "active_since": "Sun 2026-11-01 10:00:00 CET",
+        "timer": None,
     }
 
 
@@ -907,3 +917,643 @@ def test_remove_unmanaged_unit_exit_2_keeps_it(dirs: dict[str, Path], capsys) ->
     assert unit.exists()
     assert fake.calls == []
     assert "--adopt" in capsys.readouterr().err
+
+
+# Timers
+
+HAND_PROBE = {**HAND_WRITTEN, "ActiveState": "inactive", "SubState": "dead"}
+
+PROBE_ARGS = ["create", "--name", "sonde", "--exec", "/bin/true", "--user", "root"]
+
+PROBE_SERVICE = """\
+[Unit]
+Description=sonde
+StartLimitBurst=5
+StartLimitIntervalSec=10
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/true
+Restart=no
+TimeoutStartSec=1h
+
+[Install]
+"""
+
+PROBE_DRY_RUN = (
+    "# sonde.service\n"
+    + PROBE_SERVICE
+    + """
+# sonde.timer
+[Unit]
+Description=Timer for sonde
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+"""
+)
+
+
+def add_timer_config(dirs: dict[str, Path], name: str = "sonde") -> None:
+    from src.models.service_model import ServiceModel
+
+    service = ServiceModel(name)
+    service.service.exec_start = "/bin/true"
+    service.timer.every = "5min"
+    service.save_to_json(str(dirs["services_dir"] / f"{name}.json"))
+    (dirs["unit_dir"] / f"{name}.service").write_text("[Service]\n")
+    (dirs["unit_dir"] / f"{name}.timer").write_text("[Timer]\n")
+
+
+def files(dirs: dict[str, Path]) -> list[str]:
+    return sorted(path.name for path in dirs["unit_dir"].iterdir())
+
+
+@pytest.mark.parametrize(
+    "span", ["5min", "1h 30min", "90", "2 weeks", "1d12h", "10s", "500ms"]
+)
+def test_every_accepts_time_spans(span: str) -> None:
+    args = build_parser().parse_args([*PROBE_ARGS, "--every", span])
+    assert args.every == span
+
+
+@pytest.mark.parametrize(
+    "span",
+    ["", "0", "0min", "5 lightyears", "min", "-5min", "5min\nExecStart=/x", "5%n"],
+)
+def test_every_rejects_invalid_spans(dirs: dict[str, Path], span: str) -> None:
+    assert run([*PROBE_ARGS, f"--every={span}", "--dry-run"], dirs) == ExitCode.USAGE
+
+
+@pytest.mark.parametrize(
+    "expr",
+    ["hourly", "*-*-* 03:00:00", "Mon..Fri 08:00", "*:0/5", "*-*-* 03:00 Europe/Paris"],
+)
+def test_calendar_accepts_expressions(expr: str) -> None:
+    args = build_parser().parse_args([*PROBE_ARGS, "--calendar", expr])
+    assert args.calendar == expr
+
+
+@pytest.mark.parametrize("expr", ["", "-1", "daily\nExecStart=/x", "%n", 'daily"'])
+def test_calendar_rejects_invalid_characters(dirs: dict[str, Path], expr: str) -> None:
+    assert run([*PROBE_ARGS, f"--calendar={expr}", "--dry-run"], dirs) == ExitCode.USAGE
+
+
+def test_every_and_calendar_are_exclusive(dirs: dict[str, Path]) -> None:
+    argv = [*PROBE_ARGS, "--every", "5min", "--calendar", "hourly", "--dry-run"]
+    assert run(argv, dirs) == ExitCode.USAGE
+
+
+def test_timer_dry_run_exact_output_calls_nothing(
+    dirs: dict[str, Path], capsys
+) -> None:
+    fake = FakeRun()
+    argv = [*PROBE_ARGS, "--every", "5min", "--dry-run"]
+    assert run(argv, dirs, fake, root=False) == ExitCode.OK
+    assert fake.calls == []
+    assert capsys.readouterr().out == PROBE_DRY_RUN
+    assert files(dirs) == []
+
+
+def test_calendar_dry_run_is_persistent(dirs: dict[str, Path], capsys) -> None:
+    fake = FakeRun()
+    argv = [*PROBE_ARGS, "--calendar", "hourly", "--dry-run"]
+    assert run(argv, dirs, fake, root=False) == ExitCode.OK
+    assert fake.calls == []
+    out = capsys.readouterr().out
+    assert "OnCalendar=hourly\nPersistent=true\n" in out
+    assert "OnBootSec" not in out
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--screen"], ["--restart", "always"], ["--wanted-by", "default.target"]],
+)
+def test_timer_refuses_incompatible_options(
+    dirs: dict[str, Path], extra: list[str]
+) -> None:
+    argv = [*PROBE_ARGS, "--every", "5min", *extra, "--dry-run"]
+    assert run(argv, dirs) == ExitCode.USAGE
+
+
+def test_timer_allows_restart_on_failure(dirs: dict[str, Path], capsys) -> None:
+    argv = [*PROBE_ARGS, "--every", "5min", "--restart", "on-failure", "--dry-run"]
+    assert run(argv, dirs) == ExitCode.OK
+    assert "Restart=on-failure" in capsys.readouterr().out
+
+
+def test_no_timer_output_has_no_header(dirs: dict[str, Path], capsys) -> None:
+    assert run([*PROXIMA_ARGS, "--dry-run"], dirs) == ExitCode.OK
+    assert capsys.readouterr().out == PROXIMA_UNIT
+
+
+def test_timer_install_enables_only_the_timer(dirs: dict[str, Path], capsys) -> None:
+    fake = FakeRun(props=NOT_FOUND)
+    assert run([*PROBE_ARGS, "--every", "5min", "--yes"], dirs, fake) == ExitCode.OK
+    assert files(dirs) == ["sonde.service", "sonde.timer"]
+    assert fake.verbs == ["show", "show", "daemon-reload", "enable"]
+    assert fake.calls[-1] == ["systemctl", "enable", "sonde.timer"]
+    assert "Type=oneshot" in (dirs["unit_dir"] / "sonde.service").read_text()
+    assert "WantedBy" not in (dirs["unit_dir"] / "sonde.service").read_text()
+    assert capsys.readouterr().out == ""
+
+
+def test_calendar_install_is_checked_by_systemd(dirs: dict[str, Path]) -> None:
+    fake = FakeRun(props=NOT_FOUND)
+    argv = [*PROBE_ARGS, "--calendar", "hourly", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.OK
+    assert ["systemd-analyze", "calendar", "hourly"] in fake.calls
+
+
+def test_span_install_is_checked_by_systemd(dirs: dict[str, Path], capsys) -> None:
+    fake = FakeRun(props=NOT_FOUND)
+    argv = [*PROBE_ARGS, "--every", "5min", "--timeout", "30s", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.OK
+    assert ["systemd-analyze", "timespan", "5min"] in fake.calls
+    assert ["systemd-analyze", "timespan", "30s"] in fake.calls
+    assert "TimeoutStartSec=30s" in (dirs["unit_dir"] / "sonde.service").read_text()
+
+
+def test_span_refused_by_systemd_installs_nothing(dirs: dict[str, Path]) -> None:
+    fake = FakeRun(props=NOT_FOUND, fail_on="calendar")
+    argv = [*PROBE_ARGS, "--every", "99999999999y", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.USAGE
+    assert files(dirs) == []
+
+
+def test_every_rejects_non_ascii_digits(dirs: dict[str, Path]) -> None:
+    argv = [*PROBE_ARGS, "--every=٥min", "--dry-run"]
+    assert run(argv, dirs) == ExitCode.USAGE
+
+
+def test_timeout_requires_a_timer(dirs: dict[str, Path]) -> None:
+    assert run([*PROBE_ARGS, "--timeout", "5min", "--dry-run"], dirs) == ExitCode.USAGE
+
+
+def test_no_timeout_without_timer(dirs: dict[str, Path], capsys) -> None:
+    assert run([*PROBE_ARGS, "--dry-run"], dirs) == ExitCode.OK
+    assert "TimeoutStartSec" not in capsys.readouterr().out
+
+
+def test_invalid_calendar_installs_nothing(dirs: dict[str, Path]) -> None:
+    fake = FakeRun(props=NOT_FOUND, fail_on="calendar")
+    argv = [*PROBE_ARGS, "--calendar", "nope", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.USAGE
+    assert files(dirs) == []
+    assert fake.verbs == []
+    assert not (dirs["services_dir"] / "sonde.json").exists()
+
+
+def test_missing_systemd_analyze_exit_3(dirs: dict[str, Path]) -> None:
+    fake = FakeRun(missing=True)
+    argv = [*PROBE_ARGS, "--calendar", "hourly", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.SYSTEMD_FAILURE
+    assert files(dirs) == []
+
+
+def test_timer_requires_yes_and_root(dirs: dict[str, Path]) -> None:
+    fake = FakeRun(props=NOT_FOUND)
+    argv = [*PROBE_ARGS, "--every", "5min"]
+    assert run(argv, dirs, fake) == ExitCode.USAGE
+    assert run([*argv, "--yes"], dirs, fake, root=False) == ExitCode.PERMISSION
+    assert files(dirs) == []
+    assert fake.verbs == []
+
+
+def test_timer_refuses_existing_timer_file(dirs: dict[str, Path]) -> None:
+    (dirs["unit_dir"] / "sonde.timer").write_text("hand")
+    fake = FakeRun(props=NOT_FOUND)
+    assert run([*PROBE_ARGS, "--every", "5min", "--yes"], dirs, fake) == ExitCode.USAGE
+    assert (dirs["unit_dir"] / "sonde.timer").read_text() == "hand"
+    assert files(dirs) == ["sonde.timer"]
+
+
+def test_plain_create_ignores_an_unrelated_timer(dirs: dict[str, Path], capsys) -> None:
+    (dirs["unit_dir"] / "sonde.timer").write_text("hand")
+    fake = FakeRun(props=NOT_FOUND)
+    assert run([*PROBE_ARGS, "--yes"], dirs, fake) == ExitCode.OK
+    assert (dirs["unit_dir"] / "sonde.timer").read_text() == "hand"
+    assert fake.calls[-1] == ["systemctl", "enable", "sonde.service"]
+    assert "sonde.timer" in capsys.readouterr().err
+
+
+def add_hand_probe(
+    dirs: dict[str, Path], timer: str | None = "[Timer]\nOnCalendar=daily\n"
+) -> None:
+    (dirs["unit_dir"] / "sonde.service").write_text("[Service]\nExecStart=/old\n")
+    if timer is not None:
+        (dirs["unit_dir"] / "sonde.timer").write_text(timer)
+
+
+def test_adopt_takes_over_service_and_timer(dirs: dict[str, Path]) -> None:
+    add_hand_probe(dirs)
+    fake = FakeRun(props=HAND_PROBE)
+    argv = [*PROBE_ARGS, "--every", "5min", "--adopt", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.OK
+    assert "OnBootSec=5min" in (dirs["unit_dir"] / "sonde.timer").read_text()
+    assert len(list(dirs["unit_dir"].glob("sonde.service.adopted-*"))) == 1
+    backups = list(dirs["unit_dir"].glob("sonde.timer.adopted-*"))
+    assert len(backups) == 1
+    assert "OnCalendar=daily" in backups[0].read_text()
+    disabled = [c[2] for c in fake.calls if c[1] == "disable"]
+    assert disabled == ["sonde.service", "sonde.timer"]
+    assert fake.calls[-1] == ["systemctl", "enable", "sonde.timer"]
+
+
+@pytest.mark.parametrize("state", ["active", "activating", "reloading"])
+def test_adopt_with_timer_refuses_active_service(
+    dirs: dict[str, Path], state: str, capsys
+) -> None:
+    add_hand_probe(dirs, timer=None)
+    fake = FakeRun(props={**HAND_PROBE, "ActiveState": state})
+    argv = [*PROBE_ARGS, "--every", "5min", "--adopt", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.USAGE
+    assert fake.verbs == ["show", "show"]
+    assert files(dirs) == ["sonde.service"]
+    assert not (dirs["services_dir"] / "sonde.json").exists()
+
+
+def test_adopt_service_with_new_timer_rolls_it_back(dirs: dict[str, Path]) -> None:
+    add_hand_probe(dirs, timer=None)
+    fake = FakeRun(props=HAND_PROBE, fail_once="enable", timer_props=NOT_FOUND)
+    argv = [*PROBE_ARGS, "--every", "5min", "--adopt", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.SYSTEMD_FAILURE
+    assert not (dirs["unit_dir"] / "sonde.timer").exists()
+    assert "/old" in (dirs["unit_dir"] / "sonde.service").read_text()
+    assert not (dirs["services_dir"] / "sonde.json").exists()
+    assert fake.calls[-1] == ["systemctl", "enable", "sonde.service"]
+
+
+def test_adopt_rolls_back_both_units(dirs: dict[str, Path]) -> None:
+    add_hand_probe(dirs)
+    fake = FakeRun(props=HAND_PROBE, fail_once="enable")
+    argv = [*PROBE_ARGS, "--every", "5min", "--adopt", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.SYSTEMD_FAILURE
+    assert "OnCalendar=daily" in (dirs["unit_dir"] / "sonde.timer").read_text()
+    assert "/old" in (dirs["unit_dir"] / "sonde.service").read_text()
+    enabled = [c[2] for c in fake.calls if c[1] == "enable"]
+    assert enabled == ["sonde.timer", "sonde.service", "sonde.timer"]
+
+
+def test_adopt_refuses_symlinked_timer(dirs: dict[str, Path], tmp_path: Path) -> None:
+    add_hand_probe(dirs, timer=None)
+    real = tmp_path / "real.timer"
+    real.write_text("original")
+    (dirs["unit_dir"] / "sonde.timer").symlink_to(real)
+    fake = FakeRun(props=HAND_PROBE)
+    argv = [*PROBE_ARGS, "--every", "5min", "--adopt", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.USAGE
+    assert real.read_text() == "original"
+    assert fake.verbs == ["show", "show"]
+    assert "/old" in (dirs["unit_dir"] / "sonde.service").read_text()
+
+
+def test_adopt_refuses_timer_install_it_would_lose(dirs: dict[str, Path]) -> None:
+    add_hand_probe(dirs, timer="[Timer]\nOnCalendar=daily\n[Install]\nAlso=x.service\n")
+    fake = FakeRun(props=HAND_PROBE)
+    argv = [*PROBE_ARGS, "--every", "5min", "--adopt", "--yes"]
+    assert run(argv, dirs, fake) == ExitCode.USAGE
+    assert not list(dirs["unit_dir"].glob("*.adopted-*"))
+
+
+def test_adopt_without_timer_leaves_hand_timer_and_warns(
+    dirs: dict[str, Path], capsys
+) -> None:
+    add_hand_probe(dirs)
+    fake = FakeRun(props=HAND_PROBE)
+    assert run([*PROBE_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.OK
+    assert "OnCalendar=daily" in (dirs["unit_dir"] / "sonde.timer").read_text()
+    assert not list(dirs["unit_dir"].glob("sonde.timer.adopted-*"))
+    assert "sonde.timer" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "action,units",
+    [
+        ("start", ["sonde.timer"]),
+        ("restart", ["sonde.timer"]),
+        ("enable", ["sonde.timer"]),
+        ("disable", ["sonde.timer"]),
+        ("stop", ["sonde.timer", "sonde.service"]),
+    ],
+)
+def test_actions_drive_the_timer(
+    dirs: dict[str, Path], action: str, units: list[str]
+) -> None:
+    add_timer_config(dirs)
+    fake = FakeRun()
+    assert run([action, "sonde"], dirs, fake) == ExitCode.OK
+    assert fake.calls[-1] == ["systemctl", action, *units]
+
+
+def test_action_ignores_a_hand_written_timer(dirs: dict[str, Path]) -> None:
+    add_config(dirs, "sonde")
+    (dirs["unit_dir"] / "sonde.timer").write_text("hand")
+    fake = FakeRun()
+    assert run(["start", "sonde"], dirs, fake) == ExitCode.OK
+    assert fake.calls[-1] == ["systemctl", "start", "sonde.service"]
+
+
+def test_run_starts_the_service_not_the_timer(dirs: dict[str, Path]) -> None:
+    add_timer_config(dirs)
+    fake = FakeRun()
+    assert run(["run", "sonde"], dirs, fake) == ExitCode.OK
+    assert fake.calls[-1] == ["systemctl", "start", "sonde.service"]
+
+
+def test_run_exit_codes(dirs: dict[str, Path]) -> None:
+    assert run(["run", "sonde"], dirs, FakeRun(props=NOT_FOUND)) == ExitCode.NOT_FOUND
+    assert run(["run", "sonde"], dirs, root=False) == ExitCode.PERMISSION
+    assert (
+        run(["run", "sonde"], dirs, FakeRun(fail_on="start"))
+        == ExitCode.SYSTEMD_FAILURE
+    )
+
+
+TIMER_PROPS = {
+    **LOADED,
+    "ActiveState": "active",
+    "SubState": "waiting",
+    "NextElapseUSecRealtime": "Fri 2026-11-06 07:00:00 UTC",
+    "NextElapseUSecMonotonic": "0",
+    "LastTriggerUSec": "Fri 2026-11-06 06:00:00 UTC",
+}
+
+
+def test_status_json_has_timer_record(dirs: dict[str, Path], capsys) -> None:
+    add_timer_config(dirs)
+    assert run(["status", "sonde", "--json"], dirs, FakeRun(props=TIMER_PROPS)) == 0
+    record = json.loads(capsys.readouterr().out)
+    assert record["timer"] == {
+        "unit": "sonde.timer",
+        "active_state": "active",
+        "sub_state": "waiting",
+        "unit_file_state": "enabled",
+        "next_run": "Fri 2026-11-06 07:00:00 UTC",
+        "next_run_monotonic": None,
+        "last_run": "Fri 2026-11-06 06:00:00 UTC",
+    }
+
+
+def test_status_json_monotonic_next_run(dirs: dict[str, Path], capsys) -> None:
+    add_timer_config(dirs)
+    props = {
+        **TIMER_PROPS,
+        "NextElapseUSecRealtime": "",
+        "NextElapseUSecMonotonic": "59min 15s",
+        "LastTriggerUSec": "",
+    }
+    assert run(["status", "sonde", "--json"], dirs, FakeRun(props=props)) == 0
+    timer = json.loads(capsys.readouterr().out)["timer"]
+    assert timer["next_run"] is None
+    assert timer["next_run_monotonic"] == "59min 15s"
+    assert timer["last_run"] is None
+
+
+def test_status_json_stopped_timer_has_no_next_run(
+    dirs: dict[str, Path], capsys
+) -> None:
+    add_timer_config(dirs)
+    props = {
+        **TIMER_PROPS,
+        "ActiveState": "inactive",
+        "NextElapseUSecRealtime": "",
+        "NextElapseUSecMonotonic": "infinity",
+    }
+    assert run(["status", "sonde", "--json"], dirs, FakeRun(props=props)) == 0
+    timer = json.loads(capsys.readouterr().out)["timer"]
+    assert timer["next_run"] is None
+    assert timer["next_run_monotonic"] is None
+
+
+def test_status_text_shows_timer(dirs: dict[str, Path], capsys) -> None:
+    add_timer_config(dirs)
+    assert run(["status", "sonde"], dirs, FakeRun(props=TIMER_PROPS)) == 0
+    assert "07:00:00" in capsys.readouterr().out
+
+
+def test_list_json_has_timer(dirs: dict[str, Path], capsys) -> None:
+    add_timer_config(dirs)
+    assert run(["list", "--json"], dirs, FakeRun(props=TIMER_PROPS)) == 0
+    assert json.loads(capsys.readouterr().out)["services"][0]["timer"]["unit"] == (
+        "sonde.timer"
+    )
+
+
+def test_show_prints_both_units(dirs: dict[str, Path], capsys) -> None:
+    fake = FakeRun(props=NOT_FOUND)
+    assert run([*PROBE_ARGS, "--every", "5min", "--yes"], dirs, fake) == 0
+    capsys.readouterr()
+    assert run(["show", "sonde"], dirs) == ExitCode.OK
+    assert capsys.readouterr().out == PROBE_DRY_RUN
+
+
+def test_remove_deletes_the_managed_timer_first(dirs: dict[str, Path]) -> None:
+    add_timer_config(dirs)
+    fake = FakeRun()
+    assert run(["remove", "sonde", "--yes"], dirs, fake) == ExitCode.OK
+    assert files(dirs) == []
+    assert not (dirs["services_dir"] / "sonde.json").exists()
+    assert fake.calls == [
+        ["systemctl", "stop", "sonde.timer"],
+        ["systemctl", "disable", "sonde.timer"],
+        ["systemctl", "stop", "sonde.service"],
+        ["systemctl", "disable", "sonde.service"],
+        ["systemctl", "daemon-reload"],
+    ]
+
+
+def test_remove_leaves_a_hand_written_timer(dirs: dict[str, Path]) -> None:
+    add_config(dirs, "sonde")
+    (dirs["unit_dir"] / "sonde.service").write_text("[Service]\n")
+    (dirs["unit_dir"] / "sonde.timer").write_text("hand")
+    assert run(["remove", "sonde", "--yes"], dirs) == ExitCode.OK
+    assert files(dirs) == ["sonde.timer"]
+
+
+def test_remove_timer_failure_exit_3_keeps_config(dirs: dict[str, Path]) -> None:
+    add_timer_config(dirs)
+    fake = FakeRun(fail_on="stop")
+    assert run(["remove", "sonde", "--yes"], dirs, fake) == ExitCode.SYSTEMD_FAILURE
+    assert (dirs["services_dir"] / "sonde.json").exists()
+    assert (dirs["unit_dir"] / "sonde.timer").exists()
+
+
+def test_remove_with_corrupt_config_keeps_timer(dirs: dict[str, Path], capsys) -> None:
+    (dirs["services_dir"] / "sonde.json").write_text("{not json")
+    (dirs["unit_dir"] / "sonde.service").write_text("[Service]\n")
+    (dirs["unit_dir"] / "sonde.timer").write_text("hand")
+    assert run(["remove", "sonde", "--yes"], dirs) == ExitCode.OK
+    assert files(dirs) == ["sonde.timer"]
+    assert "sonde.timer" in capsys.readouterr().err
+
+
+def test_timer_survives_json_round_trip(tmp_path: Path) -> None:
+    from src.models.service_model import ServiceModel
+
+    service = ServiceModel("sonde")
+    service.timer.on_calendar = "hourly"
+    path = tmp_path / "sonde.json"
+    service.save_to_json(str(path))
+    loaded = ServiceModel.load_from_json(str(path))
+    assert loaded.has_timer
+    assert loaded.to_timer_file() == service.to_timer_file()
+
+
+def test_json_without_timer_is_unchanged(tmp_path: Path) -> None:
+    from src.models.service_model import ServiceModel
+
+    assert "timer" not in ServiceModel("x").to_json()
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps({"name": "x", "service": {"exec_start": "/bin/true"}}))
+    assert not ServiceModel.load_from_json(str(path)).has_timer
+
+
+def test_timer_file_rejects_injected_directive() -> None:
+    from src.models.service_model import ServiceModel
+
+    service = ServiceModel("x")
+    service.timer.every = "5min\nExecStart=/evil"
+    with pytest.raises(ValueError):
+        service.to_timer_file()
+
+
+def wizard(tmp_path: Path) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(services_dir=str(tmp_path))
+
+
+def test_interactive_delete_removes_managed_timer(tmp_path: Path) -> None:
+    from src.cli import cli_controller
+
+    with (
+        patch.object(cli_controller.questionary, "confirm") as confirm,
+        patch.object(cli_controller, "remove_managed_timer") as remover,
+        patch.object(cli_controller.subprocess, "run"),
+    ):
+        confirm.return_value.ask.return_value = True
+        cli_controller.CLIController.delete_service(wizard(tmp_path), "sonde")
+    remover.assert_called_once_with("sonde", tmp_path / "sonde.json")
+
+
+def test_interactive_delete_stops_if_the_timer_cannot_go(tmp_path: Path) -> None:
+    from src.cli import cli_controller
+
+    (tmp_path / "sonde.json").write_text("{}")
+    error = subprocess.CalledProcessError(1, ["systemctl"])
+    with (
+        patch.object(cli_controller.questionary, "confirm") as confirm,
+        patch.object(cli_controller, "remove_managed_timer", side_effect=error),
+        patch.object(cli_controller.subprocess, "run") as systemctl,
+    ):
+        confirm.return_value.ask.return_value = True
+        cli_controller.CLIController.delete_service(wizard(tmp_path), "sonde")
+    systemctl.assert_not_called()
+    assert (tmp_path / "sonde.json").exists()
+
+
+@pytest.mark.parametrize(
+    "action,units",
+    [
+        ("stop", ["sonde.timer", "sonde.service"]),
+        ("start", ["sonde.timer"]),
+        ("restart", ["sonde.timer"]),
+    ],
+)
+def test_interactive_actions_drive_the_timer(
+    tmp_path: Path, action: str, units: list[str]
+) -> None:
+    from unittest.mock import MagicMock
+
+    from src.cli import cli_controller
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+        # The timer is active when stopping it, inactive when starting it.
+        inactive = cmd[1] == "is-active" and action == "start"
+        return MagicMock(returncode=1 if inactive else 0, stdout="")
+
+    method = getattr(cli_controller.CLIController, f"{action}_service")
+    with (
+        patch.object(cli_controller, "timer_action_units", return_value=units),
+        patch.object(cli_controller.subprocess, "run", side_effect=fake_run) as run_,
+        patch.object(cli_controller.questionary, "confirm") as confirm,
+    ):
+        confirm.return_value.ask.return_value = False
+        method(wizard(tmp_path), "sonde")
+    run_.assert_any_call(["systemctl", action, *units])
+
+
+@pytest.fixture
+def gui_controller() -> Any:
+    import importlib
+    from types import ModuleType
+    from unittest.mock import MagicMock
+
+    # src.gui's __init__ imports the whole Tk application: bypass it.
+    package = ModuleType("src.gui")
+    package.__path__ = [str(Path(cli_args.__file__).parents[1] / "gui")]
+    stubs = {"customtkinter": MagicMock(), "src.gui": package}
+    with patch.dict(sys.modules, stubs):
+        sys.modules.pop("src.gui.gui_controller", None)
+        yield importlib.import_module("src.gui.gui_controller")
+
+
+def test_gui_delete_removes_managed_timer(tmp_path: Path, gui_controller: Any) -> None:
+    with (
+        patch.object(gui_controller, "remove_managed_timer") as remover,
+        patch.object(gui_controller.subprocess, "run"),
+    ):
+        gui_controller.GUIController.delete_service(wizard(tmp_path), "sonde")
+    remover.assert_called_once_with("sonde", tmp_path / "sonde.json")
+
+
+def test_gui_edit_keeps_the_timer(tmp_path: Path, gui_controller: Any) -> None:
+    from src.models.service_model import ServiceModel
+
+    service = ServiceModel("sonde")
+    service.timer.every = "5min"
+    service.save_to_json(str(tmp_path / "sonde.json"))
+    fake = wizard(tmp_path)
+    fake.get_service_status = lambda name: {}
+    loaded = gui_controller.GUIController.load_service(fake, "sonde")
+    assert loaded.has_timer
+    assert loaded.to_json()["timer"]["every"] == "5min"
+
+
+@pytest.mark.parametrize(
+    "action,units",
+    [
+        ("stop", ["sonde.timer", "sonde.service"]),
+        ("start", ["sonde.timer"]),
+        ("restart", ["sonde.timer"]),
+    ],
+)
+def test_gui_buttons_drive_the_timer(
+    tmp_path: Path, gui_controller: Any, action: str, units: list[str]
+) -> None:
+    cls = gui_controller.GUIController
+    fake = wizard(tmp_path)
+    fake._action_units = lambda a, n: cls._action_units(fake, a, n)
+    with (
+        patch.object(gui_controller, "timer_action_units", return_value=units),
+        patch.object(gui_controller.subprocess, "run") as run_,
+    ):
+        assert getattr(cls, f"{action}_service")(fake, "sonde") is True
+    run_.assert_called_once_with(["systemctl", action, *units], check=True)
+
+
+def test_gui_buttons_without_timer_use_the_service(
+    tmp_path: Path, gui_controller: Any
+) -> None:
+    cls = gui_controller.GUIController
+    fake = wizard(tmp_path)
+    fake._action_units = lambda a, n: cls._action_units(fake, a, n)
+    with patch.object(gui_controller.subprocess, "run") as run_:
+        assert cls.stop_service(fake, "plain") is True
+    run_.assert_called_once_with(["systemctl", "stop", "plain.service"], check=True)
