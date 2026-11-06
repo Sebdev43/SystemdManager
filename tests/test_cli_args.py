@@ -81,10 +81,14 @@ class FakeRun:
         props: dict[str, str] | None = None,
         fail_on: str | None = None,
         missing: bool = False,
+        fail_once: str | None = None,
+        props_after_reload: dict[str, str] | None = None,
     ) -> None:
         self.props = LOADED if props is None else props
         self.fail_on = fail_on
         self.missing = missing
+        self.fail_once = fail_once
+        self.props_after_reload = props_after_reload
         self.calls: list[list[str]] = []
 
     def __call__(self, cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
@@ -96,6 +100,11 @@ class FakeRun:
             raise FileNotFoundError(cmd[0])
         if cmd[0] == "systemctl" and cmd[1] == self.fail_on:
             raise subprocess.CalledProcessError(1, cmd, stderr="boom")
+        if cmd[0] == "systemctl" and cmd[1] == self.fail_once:
+            self.fail_once = None
+            raise subprocess.CalledProcessError(1, cmd, stderr="boom")
+        if cmd[:2] == ["systemctl", "daemon-reload"] and self.props_after_reload:
+            self.props, self.props_after_reload = self.props_after_reload, None
         if cmd[:2] == ["systemctl", "show"]:
             out = "".join(f"{k}={v}\n" for k, v in self.props.items())
             return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
@@ -635,3 +644,266 @@ def test_services_dir_follows_sudo_user(monkeypatch, tmp_path: Path) -> None:
         assert cli_args.default_services_dir() == (
             Path.home() / ".config" / "systemd-manager" / "services"
         )
+
+
+# create --adopt
+
+
+def add_unit(dirs: dict[str, Path], text: str = "[Service]\nExecStart=/old\n") -> Path:
+    path = dirs["unit_dir"] / "proxima-test.service"
+    path.write_text(text)
+    path.chmod(0o640)
+    return path
+
+
+ADOPT_ARGS = [*PROXIMA_ARGS, "--exec", sys.executable, "--workdir", "/tmp"]
+HAND_WRITTEN = {
+    **LOADED,
+    "FragmentPath": "",
+    "DropInPaths": "",
+}
+
+
+def test_adopt_replaces_unit_and_keeps_a_copy(dirs: dict[str, Path], capsys) -> None:
+    unit = add_unit(dirs)
+    fake = FakeRun(props={**HAND_WRITTEN, "FragmentPath": str(unit)})
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.OK
+    assert f"ExecStart={sys.executable}" in unit.read_text()
+    assert (dirs["services_dir"] / "proxima-test.json").is_file()
+    backups = list(dirs["unit_dir"].glob("proxima-test.service.adopted-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == "[Service]\nExecStart=/old\n"
+    assert backups[0].stat().st_mode & 0o777 == 0o640
+    assert fake.verbs == ["show", "disable", "daemon-reload", "show", "enable"]
+    assert not [c for c in fake.calls if c[1] in ("stop", "start", "restart")]
+    err = capsys.readouterr().err
+    assert str(backups[0]) in err
+    assert "redémarrez" in err  # the service is running its old configuration
+
+
+def test_adopt_warns_about_drop_ins(dirs: dict[str, Path], capsys) -> None:
+    add_unit(dirs)
+    fake = FakeRun(props={**HAND_WRITTEN, "DropInPaths": "/etc/x.d/a.conf"})
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.OK
+    assert "/etc/x.d/a.conf" in capsys.readouterr().err
+
+
+def test_adopt_then_remove_unblocks_the_deadlock(dirs: dict[str, Path]) -> None:
+    unit = add_unit(dirs)
+    assert (
+        run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, FakeRun(props=HAND_WRITTEN)) == 0
+    )
+    assert run(["remove", "proxima-test", "--yes"], dirs) == ExitCode.OK
+    assert not unit.exists()
+
+
+def test_adopt_requires_yes_and_root(dirs: dict[str, Path]) -> None:
+    unit = add_unit(dirs)
+    before = unit.read_text()
+    assert run([*ADOPT_ARGS, "--adopt"], dirs) == ExitCode.USAGE
+    assert (
+        run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, root=False) == ExitCode.PERMISSION
+    )
+    assert unit.read_text() == before
+
+
+def test_adopt_dry_run_touches_nothing(dirs: dict[str, Path], capsys) -> None:
+    unit = add_unit(dirs)
+    fake = FakeRun()
+    argv = [*PROXIMA_ARGS, "--adopt", "--dry-run"]
+    assert run(argv, dirs, fake, root=False) == ExitCode.OK
+    assert fake.calls == []
+    assert capsys.readouterr().out == PROXIMA_UNIT
+    assert "/old" in unit.read_text()
+    assert len(list(dirs["unit_dir"].iterdir())) == 1
+
+
+def test_adopt_nothing_to_adopt_exit_2(dirs: dict[str, Path]) -> None:
+    fake = FakeRun(props=NOT_FOUND)
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.NOT_FOUND
+    assert fake.verbs == ["show"]
+    assert list(dirs["unit_dir"].iterdir()) == []
+
+
+def test_adopt_refuses_already_managed(dirs: dict[str, Path], capsys) -> None:
+    unit = add_unit(dirs)
+    add_config(dirs)
+    fake = FakeRun(props=HAND_WRITTEN)
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.USAGE
+    assert "/old" in unit.read_text()
+    assert fake.verbs == ["show"]
+
+
+@pytest.mark.parametrize("target", ["/dev/null", "/nonexistent/dangling"])
+def test_adopt_refuses_symlink_and_never_writes_through(
+    dirs: dict[str, Path], tmp_path: Path, target: str
+) -> None:
+    link = dirs["unit_dir"] / "proxima-test.service"
+    link.symlink_to(target)
+    fake = FakeRun(props={**HAND_WRITTEN, "LoadState": "masked"})
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.USAGE
+    assert link.is_symlink() and str(link.readlink()) == target
+    assert fake.verbs == ["show"]
+
+
+def test_adopt_refuses_symlink_to_a_real_file(
+    dirs: dict[str, Path], tmp_path: Path
+) -> None:
+    real = tmp_path / "real.service"
+    real.write_text("original")
+    (dirs["unit_dir"] / "proxima-test.service").symlink_to(real)
+    fake = FakeRun(props=HAND_WRITTEN)
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.USAGE
+    assert real.read_text() == "original"
+
+
+def test_adopt_refuses_package_unit_without_file(dirs: dict[str, Path]) -> None:
+    fake = FakeRun(
+        props={**HAND_WRITTEN, "FragmentPath": "/usr/lib/systemd/system/x.service"}
+    )
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.USAGE
+    assert list(dirs["unit_dir"].iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "install",
+    [
+        "Also=x.socket",
+        "Alias=y.service",
+        "RequiredBy=z.target",
+        "DefaultInstance=a",
+        "WantedBy=a.target b.target",
+        "WantedBy=a.target\nWantedBy=b.target",
+    ],
+)
+def test_adopt_refuses_install_it_would_lose(
+    dirs: dict[str, Path], install: str, capsys
+) -> None:
+    unit = add_unit(dirs, f"[Service]\nExecStart=/old\n[Install]\n{install}\n")
+    fake = FakeRun(props=HAND_WRITTEN)
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.USAGE
+    assert fake.verbs == ["show"]
+    assert "/old" in unit.read_text()
+    assert install.split("=")[0] in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[Service]\nExecStart=/old\nAlias=not-in-install\n",
+        "[Service]\nExecStart=/old\n[Install]\n# Also=x.socket\nWantedBy=a.target\n",
+    ],
+)
+def test_adopt_accepts_install_it_keeps(dirs: dict[str, Path], text: str) -> None:
+    add_unit(dirs, text)
+    fake = FakeRun(props=HAND_WRITTEN)
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.OK
+
+
+@pytest.mark.parametrize(
+    "fake_kwargs",
+    [
+        {"fail_once": "daemon-reload"},
+        {"fail_once": "enable"},
+        {"props_after_reload": {**LOADED, "LoadState": "bad-setting"}},
+    ],
+)
+def test_adopt_late_failure_restores_previous_unit(
+    dirs: dict[str, Path], fake_kwargs: dict[str, Any], capsys
+) -> None:
+    unit = add_unit(dirs)
+    fake = FakeRun(props=HAND_WRITTEN, **fake_kwargs)
+    code = run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake)
+    assert code == ExitCode.SYSTEMD_FAILURE
+    assert unit.read_text() == "[Service]\nExecStart=/old\n"
+    assert unit.stat().st_mode & 0o777 == 0o640
+    assert not (dirs["services_dir"] / "proxima-test.json").exists()
+    assert fake.verbs[-2:] == ["daemon-reload", "enable"]
+    assert not list(dirs["unit_dir"].glob(".*"))
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "restaurée" in captured.err
+
+
+def test_adopt_rollback_failure_is_reported(dirs: dict[str, Path], capsys) -> None:
+    add_unit(dirs)
+    fake = FakeRun(props=HAND_WRITTEN, fail_on="enable")
+    code = run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake)
+    assert code == ExitCode.SYSTEMD_FAILURE
+    err = capsys.readouterr().err
+    assert err.count("boom") == 2
+    assert "restaurée" not in err
+
+
+def test_adopt_refuses_shadowed_file(dirs: dict[str, Path]) -> None:
+    unit = add_unit(dirs)
+    fake = FakeRun(
+        props={**HAND_WRITTEN, "FragmentPath": "/run/systemd/system/x.service"}
+    )
+    assert run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake) == ExitCode.USAGE
+    assert "/old" in unit.read_text()
+
+
+def test_adopt_disable_failure_restores_state(dirs: dict[str, Path]) -> None:
+    unit = add_unit(dirs)
+    fake = FakeRun(props=HAND_WRITTEN, fail_on="disable")
+    code = run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake)
+    assert code == ExitCode.SYSTEMD_FAILURE
+    assert "/old" in unit.read_text()
+    assert not (dirs["services_dir"] / "proxima-test.json").exists()
+    assert fake.verbs == ["show", "disable", "daemon-reload", "enable"]
+
+
+def test_adopt_write_failure_restores_state(dirs: dict[str, Path]) -> None:
+    unit = add_unit(dirs)
+    fake = FakeRun(props=HAND_WRITTEN)
+    with patch.object(cli_args.os, "replace", side_effect=OSError("disk full")):
+        code = run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake)
+    assert code == ExitCode.SYSTEMD_FAILURE
+    assert "/old" in unit.read_text()
+    assert not (dirs["services_dir"] / "proxima-test.json").exists()
+    assert fake.verbs == ["show", "disable"]
+    assert not list(dirs["unit_dir"].glob(".*"))
+
+
+def test_adopt_does_not_re_enable_a_disabled_unit_on_failure(
+    dirs: dict[str, Path],
+) -> None:
+    add_unit(dirs)
+    fake = FakeRun(
+        props={**HAND_WRITTEN, "UnitFileState": "disabled"}, fail_on="disable"
+    )
+    run([*ADOPT_ARGS, "--adopt", "--yes"], dirs, fake)
+    assert fake.verbs == ["show", "disable", "daemon-reload"]
+
+
+def test_create_existing_unit_hints_adopt(dirs: dict[str, Path], capsys) -> None:
+    add_unit(dirs)
+    assert run([*ADOPT_ARGS, "--yes"], dirs) == ExitCode.USAGE
+    assert "--adopt" in capsys.readouterr().err
+
+
+def test_create_managed_unit_hints_remove(dirs: dict[str, Path], capsys) -> None:
+    add_unit(dirs)
+    add_config(dirs)
+    assert run([*ADOPT_ARGS, "--yes"], dirs) == ExitCode.USAGE
+    assert "--adopt" not in capsys.readouterr().err
+
+
+def test_create_never_writes_through_dangling_symlink(
+    dirs: dict[str, Path], tmp_path: Path
+) -> None:
+    target = tmp_path / "elsewhere.service"
+    (dirs["unit_dir"] / "proxima-test.service").symlink_to(target)
+    fake = FakeRun(props=NOT_FOUND)
+    assert run([*ADOPT_ARGS, "--yes"], dirs, fake) == ExitCode.USAGE
+    assert not target.exists()
+
+
+def test_remove_unmanaged_unit_exit_2_keeps_it(dirs: dict[str, Path], capsys) -> None:
+    unit = add_unit(dirs)
+    fake = FakeRun()
+    assert run(["remove", "proxima-test", "--yes"], dirs, fake) == ExitCode.NOT_FOUND
+    assert unit.exists()
+    assert fake.calls == []
+    assert "--adopt" in capsys.readouterr().err

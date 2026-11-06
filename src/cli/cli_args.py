@@ -23,10 +23,12 @@ import argparse
 import json
 import os
 import pwd
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import IntEnum
 from pathlib import Path
 from typing import Any, NoReturn
@@ -44,6 +46,8 @@ PROG = "systemd-manager"
 SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")
 RESTART_CHOICES = ("no", "always", "on-failure")
 NETWORK_ONLINE = "network-online.target"
+# [Install] directives a generated unit cannot carry over.
+_UNPORTABLE_INSTALL = ("Also", "Alias", "RequiredBy", "DefaultInstance")
 
 # Properties read with `systemctl show`, the machine-readable interface.
 _PROPERTIES = (
@@ -56,6 +60,8 @@ _PROPERTIES = (
     "ExecMainStatus",
     "NRestarts",
     "ActiveEnterTimestamp",
+    "FragmentPath",
+    "DropInPaths",
 )
 
 
@@ -261,6 +267,137 @@ def _build_service(args: argparse.Namespace) -> ServiceModel:
     return service
 
 
+def _unportable_install(unit_path: Path) -> list[str]:
+    """Old [Install] directives that adopting would silently drop."""
+    section = ""
+    found: list[str] = []
+    wanted_by: list[str] = []
+    for raw in unit_path.read_text(errors="replace").splitlines():
+        line = raw.strip()
+        if line.startswith("["):
+            section = line
+        elif section == "[Install]":
+            key, _, value = line.partition("=")
+            if key.strip() == "WantedBy":
+                wanted_by += value.split()
+            elif key.strip() in _UNPORTABLE_INSTALL:
+                found.append(key.strip())
+    # --wanted-by only takes one target.
+    return found + ["WantedBy"] * (len(wanted_by) > 1)
+
+
+def _check_adoptable(
+    name: str, unit_path: Path, config: Path, props: dict[str, str]
+) -> None:
+    """Refuse anything but an unmanaged regular unit file in the unit directory."""
+    if config.is_file():
+        raise CliError(
+            ExitCode.USAGE,
+            "already_managed",
+            _t("service {name} is already managed; remove it first").format(name=name),
+        )
+    load_state = props.get("LoadState", "not-found")
+    if (
+        load_state == "not-found"
+        and not unit_path.exists()
+        and not unit_path.is_symlink()
+    ):
+        raise _not_found(name)
+    fragment = props.get("FragmentPath")
+    # A symlink would be written through (a masked unit points to /dev/null), and
+    # a unit loaded from elsewhere (package, /run) is not the file replaced here.
+    if (
+        unit_path.is_symlink()
+        or not unit_path.is_file()
+        or load_state == "masked"
+        or (fragment and fragment != str(unit_path))
+    ):
+        raise CliError(
+            ExitCode.USAGE,
+            "not_adoptable",
+            _t("{name} cannot be adopted: not a regular unit file in {path}").format(
+                name=name, path=unit_path.parent
+            ),
+        )
+    unportable = _unportable_install(unit_path)
+    if unportable:
+        raise CliError(
+            ExitCode.USAGE,
+            "not_adoptable",
+            _t(
+                "{name} cannot be adopted: [Install] would lose {directives}; "
+                "remove them from the unit first"
+            ).format(name=name, directives=", ".join(sorted(set(unportable)))),
+        )
+
+
+def _backup_unit(unit_path: Path) -> Path:
+    """Copy a unit aside, keeping its mode; systemd ignores this file suffix."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = unit_path.with_name(f"{unit_path.name}.adopted-{stamp}")
+    shutil.copy2(unit_path, backup)
+    return backup
+
+
+def _replace_file(path: Path, text: str) -> None:
+    """Write ``path`` atomically: a failure leaves the previous content intact."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        with tmp.open("w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _undo_adoption(unit_path: Path, backup: Path, config: Path, enable: bool) -> None:
+    """Hand the previous unit back after a failed install, as far as possible."""
+    tmp = unit_path.with_name(f".{unit_path.name}.tmp")
+    try:
+        config.unlink(missing_ok=True)
+        shutil.copy2(backup, tmp)
+        os.replace(tmp, unit_path)
+        _systemctl("daemon-reload")
+        if enable:
+            _systemctl("enable", unit_path.name)
+    except (OSError, CliError) as e:
+        _err(_t("warning: {message}").format(message=str(e)))
+    else:
+        _err(_t("previous unit restored"))
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _require_unit_loads(name: str) -> None:
+    """A unit can be enabled yet be rejected at start: check what systemd loaded."""
+    state = _unit_properties(name).get("LoadState")
+    if state != "loaded":
+        raise CliError(
+            ExitCode.SYSTEMD_FAILURE,
+            "invalid_unit",
+            _t("systemd rejects the new unit of {name} ({state})").format(
+                name=name, state=state
+            ),
+        )
+
+
+def _warn_adopted(name: str, props: dict[str, str]) -> None:
+    if props.get("ActiveState") in ("active", "activating", "reloading"):
+        _err(
+            _t(
+                "warning: {name} is still running its old configuration; restart it"
+            ).format(name=name)
+        )
+    if props.get("DropInPaths"):
+        _err(
+            _t("warning: these drop-ins still apply to {name}: {paths}").format(
+                name=name, paths=props["DropInPaths"]
+            )
+        )
+
+
 def cmd_create(args: argparse.Namespace, ctx: Context) -> int:
     check_host = not args.dry_run
     result = ServiceValidator().validate_service_config(
@@ -299,28 +436,52 @@ def cmd_create(args: argparse.Namespace, ctx: Context) -> int:
     _require_yes(args)
     _require_root()
     unit_path = ctx.unit_dir / f"{args.name}.service"
-    loaded = _unit_properties(args.name).get("LoadState", "not-found")
-    if unit_path.exists() or loaded != "not-found":
+    config = ctx.services_dir / f"{args.name}.json"
+    props = _unit_properties(args.name)
+    if args.adopt:
+        _check_adoptable(args.name, unit_path, config, props)
+    elif (
+        unit_path.exists()
+        or unit_path.is_symlink()
+        or props.get("LoadState", "not-found") != "not-found"
+    ):
+        hint = (
+            "a unit named {name} already exists; remove it first"
+            if config.is_file()
+            else "a unit named {name} already exists; --adopt takes it over"
+        )
         raise CliError(
-            ExitCode.USAGE,
-            "already_exists",
-            _t("a unit named {name} already exists; remove it first").format(
-                name=args.name
-            ),
+            ExitCode.USAGE, "already_exists", _t(hint).format(name=args.name)
         )
 
+    backup = _backup_unit(unit_path) if args.adopt else None
+    if backup:
+        _err(_t("previous unit saved to {path}").format(path=backup))
     try:
-        service.save_to_json(str(ctx.services_dir / f"{args.name}.json"))
-        unit_path.write_text(unit_text)
-    except (OSError, ValueError) as e:
+        service.save_to_json(str(config))
+        if backup:
+            # While the old [Install] section is still there, so that its
+            # symlinks do not outlive it.
+            _systemctl("disable", f"{args.name}.service")
+        _replace_file(unit_path, unit_text)
+        _systemctl("daemon-reload")
+        if backup:
+            _require_unit_loads(args.name)
+        _systemctl("enable", f"{args.name}.service")
+    except (OSError, ValueError, CliError) as e:
+        if backup:
+            enabled = props.get("UnitFileState") == "enabled"
+            _undo_adoption(unit_path, backup, config, enabled)
+        if isinstance(e, CliError):
+            raise
         # save_to_json wraps OSError in ValueError; keep the permission case.
         denied = isinstance(e, PermissionError) or isinstance(
             e.__cause__, PermissionError
         )
         code = ExitCode.PERMISSION if denied else ExitCode.SYSTEMD_FAILURE
         raise CliError(code, "write_failed", _t(str(e))) from e
-    _systemctl("daemon-reload")
-    _systemctl("enable", f"{args.name}.service")
+    if args.adopt:
+        _warn_adopted(args.name, props)
     _err(_t("service {name} installed and enabled").format(name=args.name))
     return ExitCode.OK
 
@@ -399,11 +560,20 @@ def cmd_show(args: argparse.Namespace, ctx: Context) -> int:
 def cmd_remove(args: argparse.Namespace, ctx: Context) -> int:
     _require_yes(args)
     config = ctx.services_dir / f"{args.name}.json"
+    unit_path = ctx.unit_dir / f"{args.name}.service"
     if not config.is_file():
         # Only services created by this tool are removed.
+        if unit_path.exists() or unit_path.is_symlink():
+            raise CliError(
+                ExitCode.NOT_FOUND,
+                "not_managed",
+                _t(
+                    "{name} is not managed by this tool, nothing removed; "
+                    "create --adopt takes it over"
+                ).format(name=args.name),
+            )
         raise _not_found(args.name)
     _require_root()
-    unit_path = ctx.unit_dir / f"{args.name}.service"
     try:
         if unit_path.exists():
             _systemctl("stop", f"{args.name}.service")
@@ -473,6 +643,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help=_t("print the unit to stdout; install nothing, call nothing"),
+    )
+    create.add_argument(
+        "--adopt",
+        action="store_true",
+        help=_t("take over an existing unmanaged unit (a copy is kept)"),
     )
     create.add_argument("--yes", action="store_true", help=_t("skip confirmation"))
     create.set_defaults(handler=cmd_create)

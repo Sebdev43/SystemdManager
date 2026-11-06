@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.1] - 2026-11-06
+
+### Corrigé
+- **Adoption d'une unité existante** : `create` et `remove` se bloquaient mutuellement sur une unité écrite à la main, absente de la configuration de l'outil. `create --adopt --yes` la reprend : copie conservée en `<nom>.service.adopted-<horodatage>`, anciens liens d'activation retirés, nouvelle unité écrite de façon atomique, sans arrêter ni démarrer le service. Refus pour une unité déjà gérée, masquée, liée par symlink, fournie par un paquet, ou dont le `[Install]` perdrait des activations (`Also=`, `Alias=`, `RequiredBy=`, `DefaultInstance=`, plusieurs `WantedBy=`). En cas d'échec, y compris si systemd refuse de charger la nouvelle unité, l'ancienne est restaurée. L'ancienne configuration n'est pas importée : l'unité est reconstruite à partir des options passées.
+- `create` n'écrit plus à travers un lien symbolique cassé dans le répertoire des unités.
+- Les messages de `create` et `remove` indiquent `--adopt` pour une unité non gérée.
+
+### Fixed (EN)
+- **Adopting an existing unit**: `create` and `remove` deadlocked on a hand-written unit absent from the tool's configuration. `create --adopt --yes` takes it over: a copy is kept as `<name>.service.adopted-<timestamp>`, old enablement symlinks are removed, the new unit is written atomically, and the service is neither stopped nor started. It refuses a unit that is already managed, masked, symlinked, package-provided, or whose `[Install]` would lose activations (`Also=`, `Alias=`, `RequiredBy=`, `DefaultInstance=`, several `WantedBy=`). On failure, including when systemd will not load the new unit, the previous one is restored. The previous configuration is not imported: the unit is rebuilt from the options given.
+- `create` no longer writes through a dangling symlink in the unit directory.
+- `create` and `remove` messages point to `--adopt` for an unmanaged unit.
+
 ## [1.2.0] - 2026-11-02
 
 ### Ajouté
