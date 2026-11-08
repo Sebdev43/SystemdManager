@@ -2,7 +2,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 
 @dataclass
@@ -226,70 +226,3 @@ class ServiceValidator:
             return True
         except subprocess.CalledProcessError:
             return False
-
-    def analyze_service_status(self, service_name: str) -> Tuple[str, List[str]]:
-
-        try:
-            status_output = subprocess.run(
-                ["systemctl", "status", f"{service_name}.service"],
-                capture_output=True,
-                text=True,
-            )
-
-            journal_output = subprocess.run(
-                [
-                    "journalctl",
-                    "-u",
-                    f"{service_name}.service",
-                    "-n",
-                    "50",
-                    "--no-pager",
-                ],
-                capture_output=True,
-                text=True,
-            )
-
-            status = self._parse_service_status(status_output.stdout)
-            errors = self._analyze_service_logs(journal_output.stdout)
-
-            return status, errors
-
-        except subprocess.CalledProcessError as e:
-            return "error", [f"Erreur lors de l'analyse du service: {str(e)}"]
-
-    def _parse_service_status(self, status_output: str) -> str:
-
-        if (
-            "Active: inactive" in status_output
-            or "Active: dead" in status_output
-            or "Stopped" in status_output
-        ):
-            return "inactive"
-        elif "Active: active (running)" in status_output:
-            return "active"
-        elif "Active: failed" in status_output:
-            return "failed"
-        else:
-            return "unknown"
-
-    def _analyze_service_logs(self, logs: str) -> List[str]:
-
-        errors = []
-
-        error_patterns = [
-            (r"(segmentation fault)", "Erreur de segmentation détectée"),
-            (r"(permission denied)", "Erreur de permission"),
-            (r"(failed to start)", "Échec du démarrage du service"),
-            (r"(cannot allocate memory)", "Erreur de mémoire"),
-            (r"(timeout)", "Timeout détecté"),
-            (r"(core dumped)", "Crash du programme détecté"),
-            (r"(failed to bind to address)", "Erreur de binding d'adresse"),
-            (r"(file not found)", "Fichier non trouvé"),
-            (r"(configuration error)", "Erreur de configuration"),
-        ]
-
-        for pattern, message in error_patterns:
-            if re.search(pattern, logs, re.IGNORECASE):
-                errors.append(message)
-
-        return errors

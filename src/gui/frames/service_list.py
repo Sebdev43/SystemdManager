@@ -1,12 +1,11 @@
 from tkinter import messagebox
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import customtkinter as ctk
 
 from src.gui.gui_controller import GUIController
 from src.i18n.translations import _
 from src.models.service_model import ServiceModel
-from src.utils.service_validator import ServiceValidator
 
 
 class ServiceListFrame(ctk.CTkFrame):
@@ -26,8 +25,6 @@ class ServiceListFrame(ctk.CTkFrame):
         super().__init__(master)
 
         self.controller = GUIController()
-
-        self.validator = ServiceValidator()
 
         self.services: List[ServiceModel] = []
         self.selected_service: Optional[ServiceModel] = None
@@ -183,9 +180,13 @@ class ServiceListFrame(ctk.CTkFrame):
                 "unknown": "orange",
             }
 
+            status_text = status
+            if service.status.get("timer"):
+                status_text = f"{status} ({_('timer')})"
+
             status_label = ctk.CTkLabel(
                 service_frame,
-                text=status,
+                text=status_text,
                 text_color=status_colors.get(status, "white"),
                 width=100,
             )
@@ -358,58 +359,42 @@ class ServiceListFrame(ctk.CTkFrame):
 
         self.refresh_services()
 
-    def refresh_service_status(self, service_name: str):
+    def _run_action(
+        self, action: Callable[[str], bool], success: str, failure: str
+    ) -> None:
+
+        if not self.selected_service:
+            return
 
         try:
-            status, errors = self.validator.analyze_service_status(service_name)
-
-            if service_name in self.service_frames:
-                frame = self.service_frames[service_name]
-                frame.update_status(status)
-
-                if errors:
-                    frame.show_error_indicator()
-                    frame.set_error_tooltip("\n".join(errors))
-                else:
-                    frame.hide_error_indicator()
-
+            if action(self.selected_service.name):
+                self.show_success(success)
+            else:
+                self.show_error(failure)
         except Exception as e:
-            print(
-                f"Erreur lors du rafraîchissement du statut de {service_name}: {str(e)}"
-            )
+            self.show_error(f"{failure}: {str(e)}")
+        self.refresh_services()
 
     def start_service(self):
 
-        if not self.selected_service:
-            return
-
-        try:
-            self.controller.start_service(self.selected_service.name)
-            self.show_success(_("Service started successfully"))
-            self.refresh_service_status(self.selected_service.name)
-        except Exception as e:
-            self.show_error(f"{_('Error starting service')}: {str(e)}")
+        self._run_action(
+            self.controller.start_service,
+            _("Service started successfully"),
+            _("Error starting service"),
+        )
 
     def stop_service(self):
 
-        if not self.selected_service:
-            return
-
-        try:
-            self.controller.stop_service(self.selected_service.name)
-            self.show_success(_("Service stopped successfully"))
-            self.refresh_service_status(self.selected_service.name)
-        except Exception as e:
-            self.show_error(f"{_('Error stopping service')}: {str(e)}")
+        self._run_action(
+            self.controller.stop_service,
+            _("Service stopped successfully"),
+            _("Error stopping service"),
+        )
 
     def restart_service(self):
 
-        if not self.selected_service:
-            return
-
-        try:
-            self.controller.restart_service(self.selected_service.name)
-            self.show_success(_("Service restarted successfully"))
-            self.refresh_service_status(self.selected_service.name)
-        except Exception as e:
-            self.show_error(f"{_('Error restarting service')}: {str(e)}")
+        self._run_action(
+            self.controller.restart_service,
+            _("Service restarted successfully"),
+            _("Error restarting service"),
+        )

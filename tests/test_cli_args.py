@@ -1557,3 +1557,65 @@ def test_gui_buttons_without_timer_use_the_service(
     with patch.object(gui_controller.subprocess, "run") as run_:
         assert cls.stop_service(fake, "plain") is True
     run_.assert_called_once_with(["systemctl", "stop", "plain.service"], check=True)
+
+
+def test_gui_status_reads_active_state(gui_controller: Any) -> None:
+    out = "ActiveState=active\nSubState=waiting\nLoadState=loaded\n"
+    done = subprocess.CompletedProcess([], 0, stdout=out)
+    with patch.object(gui_controller.subprocess, "run", return_value=done) as run_:
+        status = gui_controller.GUIController.get_service_status(None, "sonde", "timer")
+    assert status == {"active": "active", "sub": "waiting", "load": "loaded"}
+    assert run_.call_args.args[0][:3] == ["systemctl", "show", "sonde.timer"]
+
+
+@pytest.mark.parametrize("managed,expected", [(True, "timer"), (False, "service")])
+def test_gui_list_shows_the_timer_state(
+    tmp_path: Path, gui_controller: Any, managed: bool, expected: str
+) -> None:
+    from src.models.service_model import ServiceModel
+
+    ServiceModel("sonde").save_to_json(str(tmp_path / "sonde.json"))
+    fake = wizard(tmp_path)
+    fake.get_service_status = lambda name, suffix="service": {"active": suffix}
+    with patch.object(gui_controller, "has_managed_timer", return_value=managed):
+        [service] = gui_controller.GUIController.get_services(fake)
+    assert service.status["active"] == expected
+    assert bool(service.status.get("timer")) is managed
+
+
+@pytest.fixture
+def service_list(gui_controller: Any) -> Any:
+    import importlib
+    from types import ModuleType
+    from unittest.mock import MagicMock
+
+    tk = ModuleType("tkinter")
+    tk.messagebox = MagicMock()  # type: ignore[attr-defined]
+    ctk = ModuleType("customtkinter")
+    ctk.CTkFrame = object  # type: ignore[attr-defined]
+    stubs = {
+        "tkinter": tk,
+        "tkinter.messagebox": tk.messagebox,  # type: ignore[attr-defined]
+        "customtkinter": ctk,
+    }
+    with patch.dict(sys.modules, stubs):
+        for name in ("src.gui.frames", "src.gui.frames.service_list"):
+            sys.modules.pop(name, None)
+        yield importlib.import_module("src.gui.frames.service_list")
+
+
+@pytest.mark.parametrize("succeeded", [True, False])
+def test_gui_action_reports_failure(service_list: Any, succeeded: bool) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    frame = SimpleNamespace(
+        selected_service=SimpleNamespace(name="sonde"),
+        show_success=MagicMock(),
+        show_error=MagicMock(),
+        refresh_services=MagicMock(),
+    )
+    service_list.ServiceListFrame._run_action(frame, lambda name: succeeded, "ok", "ko")
+    assert frame.show_success.called is succeeded
+    assert frame.show_error.called is not succeeded
+    frame.refresh_services.assert_called_once()

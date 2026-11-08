@@ -7,7 +7,12 @@ from typing import List, Optional
 import customtkinter
 
 from src.models.service_model import ServiceModel
-from src.utils.timer_units import remove_managed_timer, timer_action_units
+from src.utils.timer_units import (
+    SYSTEMD_UNIT_DIR,
+    has_managed_timer,
+    remove_managed_timer,
+    timer_action_units,
+)
 
 
 class GUIController:
@@ -56,8 +61,16 @@ class GUIController:
                             if "install" in service_data:
                                 service.install.__dict__.update(service_data["install"])
 
-                        status = self.get_service_status(service_name)
-                        service.status = status
+                        # A timer-driven oneshot is idle between runs: its timer
+                        # tells whether it is scheduled.
+                        timer_path = SYSTEMD_UNIT_DIR / f"{service_name}.timer"
+                        if has_managed_timer(Path(service_path), timer_path):
+                            service.status = {
+                                **self.get_service_status(service_name, "timer"),
+                                "timer": True,
+                            }
+                        else:
+                            service.status = self.get_service_status(service_name)
 
                         services.append(service)
                     except Exception as e:
@@ -68,30 +81,17 @@ class GUIController:
             print(f"Erreur lors de la lecture du dossier services : {e}")
             return []
 
-    def get_service_status(self, service_name: str) -> dict:
+    def get_service_status(self, service_name: str, suffix: str = "service") -> dict:
 
         try:
-            result = subprocess.run(
-                ["systemctl", "status", f"{service_name}.service"],
-                capture_output=True,
-                text=True,
-            )
-
-            if "Stopped" in result.stdout or "inactive" in result.stdout:
-                active_state = "inactive"
-            elif "Active: active" in result.stdout:
-                active_state = "active"
-            elif "Active: failed" in result.stdout:
-                active_state = "failed"
-            else:
-                active_state = "unknown"
-
+            # ActiveState, not the text of `systemctl status`: its journal lines
+            # ("Stopped ...") outlive a restart.
             props_result = subprocess.run(
                 [
                     "systemctl",
                     "show",
-                    f"{service_name}.service",
-                    "--property=SubState,LoadState",
+                    f"{service_name}.{suffix}",
+                    "--property=ActiveState,SubState,LoadState",
                 ],
                 capture_output=True,
                 text=True,
@@ -105,7 +105,7 @@ class GUIController:
                     status[key.lower()] = value
 
             return {
-                "active": active_state,
+                "active": status.get("activestate", "unknown"),
                 "sub": status.get("substate", "unknown"),
                 "load": status.get("loadstate", "unknown"),
             }

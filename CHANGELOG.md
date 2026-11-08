@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.1] - 2026-11-08
+
+### Corrigé
+- **Interface graphique, colonne Statut** : un service à timer affiche l'état de son timer, suivi de « (timer) », au lieu de « inactive » entre deux exécutions. L'état est lu dans `ActiveState` : le texte de `systemctl status` faisait passer pour inactive une unité redémarrée après un arrêt.
+- Démarrer, arrêter et redémarrer rechargent la liste : le statut affiché ne restait jamais à jour (`refresh_service_status` échouait sur un attribut inexistant).
+- Démarrer, arrêter et redémarrer affichent une erreur quand `systemctl` échoue, au lieu d'un faux succès.
+
+### Supprimé
+- `ServiceValidator.analyze_service_status` et ses deux méthodes d'analyse : seul `refresh_service_status`, retiré, les appelait.
+
+### Fixed (EN)
+- **GUI, Status column**: a timer-run service shows its timer's state, followed by "(timer)", instead of "inactive" between runs. The state comes from `ActiveState`: the text of `systemctl status` made a unit restarted after a stop look inactive.
+- Start, stop and restart reload the list: the displayed status never refreshed (`refresh_service_status` failed on a missing attribute).
+- Start, stop and restart show an error when `systemctl` fails, instead of a false success.
+
+### Removed (EN)
+- `ServiceValidator.analyze_service_status` and its two parsing helpers: only the removed `refresh_service_status` called them.
+
 ## [1.3.0] - 2026-11-06
 
 ### Ajouté
